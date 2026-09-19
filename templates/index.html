@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Overview</h1>
+<p>System Manager hosts feature modules behind one dashboard. Each module keeps
+its own code, data and templates.</p>
+<table>
+  <tr><th>Module</th><th>Status</th><th>Backed by</th></tr>
+  <tr>
+    <td><a href="{{ url_for('organizer.proxy', subpath='') }}">Folder Organizer</a></td>
+    <td>{% if organizer_ok %}mounted{% else %}unavailable{% endif %}</td>
+    <td><code>folder_organizer</code></td>
+  </tr>
+</table>
+{% endblock %}

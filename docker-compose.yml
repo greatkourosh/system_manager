@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  system-manager:
+    build: .
+    container_name: system-manager
+    network_mode: host
+    pid: host
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /etc/os-release:/etc/os-release:ro
+      - /etc/resolv.conf:/etc/resolv.conf:ro
+      - /run/user:/run/user:ro
+      - /var/run/dbus:/var/run/dbus:ro
+      - /sys/class/dmi:/sys/class/dmi:ro
+    environment:
+      - HOST_ROOT=/host
+      - DBUS_SYSTEM_BUS_ADDRESS=unix:path=/host/run/dbus/system_bus_socket
+    cap_add:
+      - SYS_ADMIN
+      - SYS_RESOURCE
+      - NET_ADMIN
+      - CAP_DAC_READ_SEARCH
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    command: ["python3", "server.py", "--port", "4000"]
