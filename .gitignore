@@ -1,4 +1,35 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
 
+venv/
+.venv/
+env/
+ENV/
+
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+/data/
+*.db
+*.db-shm
+*.db-wal
+
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
+
+.claude/
+*.output
 
 #Ignore vscode AI rules
 .github/instructions/codacy.instructions.md
