@@ -19,6 +19,7 @@ from http.cookies import SimpleCookie
 
 
 ROOT = Path(__file__).resolve().parent
+DISABLE_AUTH = os.environ.get("DISABLE_AUTH", "0") == "1"
 INTERVAL = 10
 CONNECT_INTERVAL = 60
 COMMANDS = {
@@ -159,13 +160,9 @@ def unavailable(detail="This reading is not available on this system."):
 
 
 def command(name, timeout=2, limit=131072):
-    host_root = os.environ.get("HOST_ROOT", "")
-    args = list(COMMANDS[name])
-    if host_root:
-        args = [os.path.join(host_root, arg.lstrip("/")) if arg.startswith("/") else arg for arg in args]
     process = None
     try:
-        process = subprocess.Popen(args, stdout=subprocess.PIPE,
+        process = subprocess.Popen(COMMANDS[name], stdout=subprocess.PIPE,
                                    stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
                                    env={"PATH": "/usr/bin:/usr/sbin", "LC_ALL": "C"})
         deadline = time.monotonic() + timeout
@@ -225,7 +222,7 @@ def uptime_reading():
 
 def filesystem_reading():
     host_root = os.environ.get("HOST_ROOT", "")
-    path = os.path.join(host_root, "proc/1/root/") if host_root else "/"
+    path = os.path.join(host_root, "/") if host_root else "/"
     try:
         disk = os.statvfs(path)
         return observed({"total": disk.f_blocks * disk.f_frsize,
@@ -388,10 +385,8 @@ def service_preconditions(name):
 
 
 def service_execute(action, name):
-    host_root = os.environ.get("HOST_ROOT", "")
-    systemctl = os.path.join(host_root, "usr/bin/systemctl") if host_root else "/usr/bin/systemctl"
     try:
-        result = subprocess.run([systemctl, "--user", action, name],
+        result = subprocess.run(["/usr/bin/systemctl", "--user", action, name],
                                 capture_output=True, text=True, timeout=15, env={"PATH": "/usr/bin", "LC_ALL": "C"})
         return {"code": result.returncode, "stdout": result.stdout[:2048], "stderr": result.stderr[:2048]}
     except (OSError, subprocess.TimeoutExpired):
@@ -399,10 +394,8 @@ def service_execute(action, name):
 
 
 def service_verify(name):
-    host_root = os.environ.get("HOST_ROOT", "")
-    systemctl = os.path.join(host_root, "usr/bin/systemctl") if host_root else "/usr/bin/systemctl"
     try:
-        result = subprocess.run([systemctl, "--user", "is-active", name],
+        result = subprocess.run(["/usr/bin/systemctl", "--user", "is-active", name],
                                 capture_output=True, text=True, timeout=3, env={"PATH": "/usr/bin", "LC_ALL": "C"})
         return observed({"active": result.returncode == 0})
     except (OSError, subprocess.TimeoutExpired):
@@ -410,10 +403,8 @@ def service_verify(name):
 
 
 def nm_profiles():
-    host_root = os.environ.get("HOST_ROOT", "")
-    nmcli = os.path.join(host_root, "usr/bin/nmcli") if host_root else "/usr/bin/nmcli"
     try:
-        result = subprocess.run([nmcli, "-t", "-f", "NAME,TYPE,DEVICE", "con", "show"],
+        result = subprocess.run(["/usr/bin/nmcli", "-t", "-f", "NAME,TYPE,DEVICE", "con", "show"],
                                 capture_output=True, text=True, timeout=5, env={"PATH": "/usr/bin", "LC_ALL": "C"})
         if result.returncode:
             return observed([])
@@ -430,10 +421,8 @@ def nm_profiles():
 
 
 def nm_checkpoint():
-    host_root = os.environ.get("HOST_ROOT", "")
-    nmcli = os.path.join(host_root, "usr/bin/nmcli") if host_root else "/usr/bin/nmcli"
     try:
-        result = subprocess.run([nmcli, "con", "checkpoint"],
+        result = subprocess.run(["/usr/bin/nmcli", "con", "checkpoint"],
                                 capture_output=True, text=True, timeout=5, env={"PATH": "/usr/bin", "LC_ALL": "C"})
         if result.returncode == 0 and result.stdout.strip():
             return observed(result.stdout.strip())
@@ -443,10 +432,8 @@ def nm_checkpoint():
 
 
 def nm_rollback(checkpoint):
-    host_root = os.environ.get("HOST_ROOT", "")
-    nmcli = os.path.join(host_root, "usr/bin/nmcli") if host_root else "/usr/bin/nmcli"
     try:
-        result = subprocess.run([nmcli, "con", "rollback", checkpoint],
+        result = subprocess.run(["/usr/bin/nmcli", "con", "rollback", checkpoint],
                                 capture_output=True, text=True, timeout=10, env={"PATH": "/usr/bin", "LC_ALL": "C"})
         return observed({"rollback": result.returncode == 0})
     except (OSError, subprocess.TimeoutExpired):
@@ -454,10 +441,8 @@ def nm_rollback(checkpoint):
 
 
 def nm_activate(profile):
-    host_root = os.environ.get("HOST_ROOT", "")
-    nmcli = os.path.join(host_root, "usr/bin/nmcli") if host_root else "/usr/bin/nmcli"
     try:
-        result = subprocess.run([nmcli, "con", "up", profile],
+        result = subprocess.run(["/usr/bin/nmcli", "con", "up", profile],
                                 capture_output=True, text=True, timeout=20, env={"PATH": "/usr/bin", "LC_ALL": "C"})
         return {"code": result.returncode, "stdout": result.stdout[:2048], "stderr": result.stderr[:2048]}
     except (OSError, subprocess.TimeoutExpired):
@@ -465,10 +450,8 @@ def nm_activate(profile):
 
 
 def nm_verify(profile):
-    host_root = os.environ.get("HOST_ROOT", "")
-    nmcli = os.path.join(host_root, "usr/bin/nmcli") if host_root else "/usr/bin/nmcli"
     try:
-        result = subprocess.run([nmcli, "-t", "-f", "NAME,DEVICE", "con", "show", "--active"],
+        result = subprocess.run(["/usr/bin/nmcli", "-t", "-f", "NAME,DEVICE", "con", "show", "--active"],
                                 capture_output=True, text=True, timeout=3, env={"PATH": "/usr/bin", "LC_ALL": "C"})
         active = profile in result.stdout
         return observed({"active": active})
@@ -573,6 +556,8 @@ class LocalServer(http.server.ThreadingHTTPServer):
             output.write(self.credential + "\n")
 
     def session_valid(self, token):
+        if DISABLE_AUTH:
+            return True
         with self.auth_lock:
             now = time.monotonic()
             self.sessions = {key: expiry for key, expiry in self.sessions.items() if expiry > now}
@@ -621,7 +606,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if not self.server.session_valid(self.token()):
                 self.respond(401, {"error": "Unlock this dashboard with the local access code."})
                 return
-            self.respond(200, self.server.cache.get())
+            self.respond(200, {**self.server.cache.get(), "auth_disabled": DISABLE_AUTH})
         elif self.path == "/api/connectivity":
             if not self.server.session_valid(self.token()):
                 self.respond(401, {"error": "Unlock this dashboard with the local access code."})
@@ -828,7 +813,10 @@ def main():
             print(f"System Manager: http://127.0.0.1:{server.server_port}", flush=True)
             print(f"Local access code file: {credential_path}", flush=True)
             print(f"Audit database: {audit_path}", flush=True)
-            print("The code rotates after login. Read it locally; never share it.", flush=True)
+            if DISABLE_AUTH:
+                print("WARNING: access code disabled (DISABLE_AUTH=1). Do not expose this port beyond localhost.", flush=True)
+            else:
+                print("The code rotates after login. Read it locally; never share it.", flush=True)
             try:
                 server.serve_forever()
             except KeyboardInterrupt:

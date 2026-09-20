@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Modules — System Manager{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Modules</h1>
+  <p class="muted">Each module is a standalone Flask app mounted under its own prefix. The loader keeps them isolated and reports availability.</p>
+</div>
+
+<div class="module-grid">
+  {% for m in modules %}
+  <article class="module-card {% if not m.available %}module-off{% endif %}">
+    <header>
+      <div class="module-status">
+        <span class="dot {% if m.available %}dot-ok{% else %}dot-bad{% endif %}"></span>
+        <strong>{{ m.name }}</strong>
+      </div>
+      <div class="module-tags">
+        {% for t in m.tags %}<span class="tag">{{ t }}</span>{% endfor %}
+      </div>
+    </header>
+    <p class="module-summary">{{ m.summary }}</p>
+    <footer>
+      <code>{{ m.path }}</code>
+      {% if m.available %}
+      <a class="btn" href="{{ url_for(m.url, subpath='') }}">Open</a>
+      {% else %}
+      <span class="btn disabled">Unavailable</span>
+      {% endif %}
+    </footer>
+  </article>
+  {% endfor %}
+</div>
+
+<section class="card">
+  <h2>Register a new module</h2>
+  <p class="muted">Add a module by creating a loader in <code>system_manager/</code> that imports the target Flask app and returns a Blueprint.</p>
+  <pre class="code-block"><code># system_manager/new_module.py
+from flask import Blueprint
+
+def new_module_blueprint():
+    bp = Blueprint("new_module", __name__, url_prefix="/new")
+    @bp.route("/")
+    def index():
+        return "Hello from new module"
+    return bp
+
+# Then in system_manager/__init__.py:
+# from .new_module import new_module_blueprint
+# app.register_blueprint(new_module_blueprint())
+</code></pre>
+</section>
+{% endblock %}

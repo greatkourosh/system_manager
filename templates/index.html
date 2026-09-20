@@ -1,14 +1,82 @@
 {% extends "base.html" %}
+{% block title %}Dashboard — System Manager{% endblock %}
 {% block content %}
-<h1>Overview</h1>
-<p>System Manager hosts feature modules behind one dashboard. Each module keeps
-its own code, data and templates.</p>
-<table>
-  <tr><th>Module</th><th>Status</th><th>Backed by</th></tr>
-  <tr>
-    <td><a href="{{ url_for('organizer.proxy', subpath='') }}">Folder Organizer</a></td>
-    <td>{% if organizer_ok %}mounted{% else %}unavailable{% endif %}</td>
-    <td><code>folder_organizer</code></td>
-  </tr>
-</table>
+<div class="page-head">
+  <h1>Dashboard</h1>
+  <p class="muted" id="updatedAt">
+    {% if snap.state == "observed" %}Live readings, collected just now.{% else %}{{ snap.detail or "Collecting…" }}{% endif %}
+  </p>
+</div>
+
+<section class="stats">
+  <div class="stat">
+    <div class="stat-label">Memory</div>
+    <div class="stat-value" id="statMemory">—</div>
+    <div class="meter"><div class="meter-fill" id="memBar"></div></div>
+    <div class="stat-sub muted" id="memSub">waiting for data</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Root filesystem</div>
+    <div class="stat-value" id="statDisk">—</div>
+    <div class="meter"><div class="meter-fill warn" id="diskBar"></div></div>
+    <div class="stat-sub muted" id="diskSub">waiting for data</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Load average</div>
+    <div class="stat-value" id="statLoad">—</div>
+    <div class="spark" id="loadSpark"></div>
+    <div class="stat-sub muted" id="loadSub">waiting for data</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Uptime</div>
+    <div class="stat-value" id="statUptime">—</div>
+    <div class="stat-sub muted" id="osSub">—</div>
+  </div>
+</section>
+
+<section class="grid">
+  <div class="card">
+    <h2>Modules</h2>
+    <div class="module-list">
+      {% for m in modules %}
+      <a class="module {% if not m.available %}module-off{% endif %}" href="{% if m.available %}{{ url_for(m.url, subpath='') }}{% else %}#{% endif %}">
+        <div class="module-head">
+          <span class="dot {% if m.available %}dot-ok{% else %}dot-bad{% endif %}"></span>
+          <strong>{{ m.name }}</strong>
+        </div>
+        <p>{{ m.summary }}</p>
+        <div class="module-tags">
+          {% for t in m.tags %}<span class="tag">{{ t }}</span>{% endfor %}
+        </div>
+      </a>
+      {% endfor %}
+      <a class="module module-add" href="{{ url_for('modules_page') }}">
+        <strong>＋ Add a module</strong>
+        <p class="muted">Point the loader at any Flask app.</p>
+      </a>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Network</h2>
+    <div id="netBox" class="muted">waiting for data</div>
+  </div>
+
+  <div class="card">
+    <h2>Advisories</h2>
+    <div id="suggBox" class="muted">waiting for data</div>
+  </div>
+
+  <div class="card">
+    <h2>Hardware</h2>
+    <table class="kv" id="hwTable">
+      <tbody>
+        <tr><th>Manufacturer</th><td id="hwMaker">—</td></tr>
+        <tr><th>Model</th><td id="hwModel">—</td></tr>
+        <tr><th>CPU</th><td id="hwCpu">—</td></tr>
+        <tr><th>Kernel</th><td id="hwKernel">—</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
 {% endblock %}
