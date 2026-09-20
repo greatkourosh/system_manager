@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+  <h1>Builds</h1>
+  <button class="btn primary">+ Create Build</button>
+</div>
+
+{% if builds %}
+<table>
+  <thead>
+    <tr><th>Name</th><th>Type</th><th>Components</th><th>Status</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for build in builds %}
+    <tr>
+      <td><a href="{{ url_for('inventory_api.build_detail', build_id=build.id) }}">{{ build.name }}</a></td>
+      <td>{{ build.type }}</td>
+      <td>{{ build.components|length }}</td>
+      <td>{{ build.status }}</td>
+      <td><button class="btn small">Edit</button></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty">No builds yet. Create a PC, rack, or workstation build.</p>
+{% endif %}
+{% endblock %}

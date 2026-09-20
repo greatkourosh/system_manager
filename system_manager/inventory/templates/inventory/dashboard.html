@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="dashboard-grid">
+  <section class="stat-cards">
+    <article class="card">
+      <h3>Total Items</h3>
+      <p class="stat">{{ stats.total_items }}</p>
+    </article>
+    <article class="card warn">
+      <h3>Warranty Expiring (30d)</h3>
+      <p class="stat">{{ stats.warranty_expiring }}</p>
+    </article>
+    <article class="card warn">
+      <h3>Low Stock</h3>
+      <p class="stat">{{ stats.low_stock }}</p>
+    </article>
+    <article class="card">
+      <h3>Recent Changes</h3>
+      <p class="stat">{{ stats.recent_changes }}</p>
+    </article>
+  </section>
+
+  <section class="actions">
+    <a href="{{ url_for('inventory_api.items_list') }}" class="btn primary">Browse Items</a>
+    <a href="{{ url_for('inventory_api.builds_list') }}" class="btn">View Builds</a>
+    <a href="{{ url_for('inventory_api.topology') }}" class="btn">Network Topology</a>
+  </section>
+
+  <section class="recent-changes">
+    <h2>Recent Changes</h2>
+    <p class="empty">No changes yet. Add your first item!</p>
+  </section>
+</div>
+{% endblock %}

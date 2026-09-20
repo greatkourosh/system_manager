@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+  <h1>{{ build.name }}</h1>
+  <div class="actions">
+    <button class="btn">Add Component</button>
+    <button class="btn">Validate</button>
+  </div>
+</div>
+
+<div class="detail-grid">
+  <section class="card">
+    <h2>Components</h2>
+    {% if build.components %}
+    <table>
+      <thead><tr><th>Component</th><th>Slot</th><th>Status</th></tr></thead>
+      <tbody>
+        {% for comp in build.components %}
+        <tr><td>{{ comp.name }}</td><td>{{ comp.slot }}</td><td>{{ comp.status }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="empty">No components added.</p>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <h2>Compatibility Report</h2>
+    <p class="empty">Run validation to check compatibility.</p>
+  </section>
+</div>
+{% endblock %}

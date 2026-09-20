@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+  <h1>{{ item.name }}</h1>
+  <div class="actions">
+    <button class="btn">Edit</button>
+    <button class="btn danger">Retire</button>
+  </div>
+</div>
+
+<div class="detail-grid">
+  <section class="card">
+    <h2>Details</h2>
+    <dl>
+      <dt>Category</dt><dd>{{ item.category }}</dd>
+      <dt>Status</dt><dd>{{ item.status }}</dd>
+      <dt>Location</dt><dd>{{ item.location or "—" }}</dd>
+      <dt>Serial</dt><dd>{{ item.serial or "—" }}</dd>
+      <dt>Purchase Date</dt><dd>{{ item.purchase_date or "—" }}</dd>
+      <dt>Warranty End</dt><dd>{{ item.warranty_end or "—" }}</dd>
+    </dl>
+  </section>
+
+  <section class="card">
+    <h2>Notes</h2>
+    <p class="empty">{{ item.notes or "No notes." }}</p>
+  </section>
+</div>
+{% endblock %}

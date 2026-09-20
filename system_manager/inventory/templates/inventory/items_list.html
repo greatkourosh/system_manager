@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+  <h1>Inventory Items</h1>
+  <button class="btn primary">+ Add Item</button>
+</div>
+
+<div class="filters">
+  <select name="category">
+    <option value="">All Categories</option>
+    <option value="pc_component">PC Component</option>
+    <option value="network_active">Network (Active)</option>
+    <option value="network_passive">Network (Passive)</option>
+    <option value="electric">Electric/Electronic</option>
+    <option value="personal">Personal Device</option>
+    <option value="part">Part/Consumable</option>
+  </select>
+  <select name="status">
+    <option value="">All Statuses</option>
+    <option value="installed">Installed</option>
+    <option value="spare">Spare</option>
+    <option value="retired">Retired</option>
+  </select>
+  <input type="search" placeholder="Search items...">
+</div>
+
+{% if items %}
+<table>
+  <thead>
+    <tr>
+      <th>Name</th><th>Category</th><th>Status</th><th>Location</th><th>Warranty</th><th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for item in items %}
+    <tr>
+      <td><a href="{{ url_for('inventory_api.item_detail', item_id=item.id) }}">{{ item.name }}</a></td>
+      <td>{{ item.category }}</td>
+      <td>{{ item.status }}</td>
+      <td>{{ item.location or "—" }}</td>
+      <td>{{ item.warranty_end or "—" }}</td>
+      <td><button class="btn small">Edit</button></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty">No items found. Add your first inventory item.</p>
+{% endif %}
+{% endblock %}
