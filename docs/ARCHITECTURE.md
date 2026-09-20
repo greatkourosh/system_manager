@@ -1,0 +1,220 @@
+# Architecture
+
+## Overview
+
+System Manager is a single-file Python HTTP server (`server.py`) with an embedded HTML/JS frontend (`index.html`). It runs unprivileged but accesses host system state via mounted paths in container mode.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        Browser                                │
+│  http://localhost:4000/  (or 127.0.0.1:8765)                  │
+└─────────────────────┬───────────────────────────────────────┘
+                      │ HTTP/JSON
+                      ▼
+┌─────────────────────────────────────────────────────────────┐
+│  server.py — ThreadingHTTPServer                            │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │ Handler (BaseHTTPRequestHandler)                    │   │
+│  │   GET  /              → index.html                  │   │
+│  │   GET  /api/status    → full snapshot               │   │
+│  │   GET  /api/*         → sub-APIs                    │   │
+│  │   POST /api/*         → actions, config, auth       │   │
+│  └─────────────────────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │ SnapshotCache (coalesced 10s / 60s)                 │   │
+│  │   snapshot() → system, hardware, memory, fs, net    │   │
+│  │   connectivity_checks() → gateway, dns, https       │   │
+│  └─────────────────────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │ Actions: user_services, nm_profiles, service_*, nm_*│   │
+│  │   Preconditions → Approval (TTL, single-use)        │   │
+│  │   Execute → Verify → Audit (SQLite)                 │   │
+│  └─────────────────────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │ Auth: rotating file token, SHA256 session cookies   │   │
+│  │   Host/Origin/CSRF validation                       │   │
+│  └─────────────────────────────────────────────────────┘   │
+└─────────────────────┬───────────────────────────────────────┘
+                      │ subprocess / syscalls
+        ┌─────────────┼─────────────┐
+        ▼             ▼             ▼
+   /proc/...    /sys/class/dmi   nmcli, systemctl, ip
+   /etc/...     os.statvfs       (host binaries via mounts)
+```
+
+## Core Modules
+
+### `snapshot()` — Read-Only Collection
+Pure functions, no side effects. Each collector returns a normalized dict with `{state: "observed"|"unavailable", value: ..., detail?: ...}`.
+
+| Collector | Source | Key Metrics |
+|-----------|--------|-------------|
+| `system` | `os.uname()`, `/proc/uptime`, `/proc/loadavg`, `/etc/os-release`, `/proc/cpuinfo` | OS, kernel, CPU count, load, uptime |
+| `hardware` | `/sys/class/dmi/id/{sys_vendor,product_name}`, `/proc/cpuinfo` | Vendor, model, CPU model |
+| `memory` | `/proc/meminfo` | MemTotal, MemAvailable, SwapTotal, SwapFree |
+| `filesystem` | `os.statvfs("/")` (or `/host/` in container) | Total, available bytes |
+| `interfaces` | `ip -j address show` | Name, operstate, addresses |
+| `routes` | `ip -j -4/-6 route show default` | Gateway, device per family |
+| `nameservers` | `/etc/resolv.conf` | List of nameserver IPs |
+
+### `connectivity_checks()` — Opt-In Active Probes
+Only runs when `config.enabled == true`. Uses configured destination (validated HTTPS URL).
+
+| Check | Method | Target |
+|-------|--------|--------|
+| `gateway` | Parse routes | Default gateway IP + device |
+| `gateway_reachable` | UDP `connect()` | Gateway (IPv4/IPv6) |
+| `dns_configured` | Parse `/etc/resolv.conf` | Nameserver list |
+| `dns_reachable` | UDP `connect()` | First nameserver |
+| `dns_resolution` | `socket.getaddrinfo()` | Destination hostname |
+| `https` | TLS `create_connection` + `wrap_socket` | Destination host:443 |
+
+### `SnapshotCache` — Coalesced Collection
+- **Lock-protected** shared state
+- **10s interval** for main snapshot (coalesces concurrent requests)
+- **60s interval** for connectivity (independent)
+- **Stale detection**: >30s old or collection error
+- **Thread-safe** `get()` returns `{state, detail, data, connectivity, checks, explanations}`
+
+### `ActionAudit` — SQLite Logging
+```sql
+CREATE TABLE actions (
+  id INTEGER PRIMARY KEY,
+  ts REAL NOT NULL,           -- epoch
+  token_hash TEXT NOT NULL,   -- SHA256(session_token)
+  action_type TEXT NOT NULL,  -- service_restart, service_start, nm_activate
+  parameters TEXT NOT NULL,   -- JSON
+  preconditions TEXT NOT NULL,-- JSON
+  result TEXT NOT NULL,       -- JSON (exit code, stdout, stderr)
+  verification TEXT           -- JSON (post-exec state)
+);
+```
+Indexes on `ts` and `token_hash`. Parameterized queries only.
+
+### `Approval` — Single-Use Tokens
+- `issue(token_hash, action_type, parameters, preconditions, ttl=300)` → `approval_token` (hex)
+- `consume(approval_token)` → approval dict or `None` (expired/used/invalid)
+- In-memory dict with periodic cleanup
+- Bound to exact action type + parameters + session
+
+### Actions
+| Action | Executable | Preconditions | Verification |
+|--------|------------|---------------|--------------|
+| `service_restart` | `systemctl --user restart <name>` | Not in `CRITICAL_SERVICES` | `systemctl --user is-active` |
+| `service_start` | `systemctl --user start <name>` | Not in `CRITICAL_SERVICES` | `systemctl --user is-active` |
+| `nm_activate` | `nmcli con up <name>` | `nmcli con checkpoint` succeeds | `nmcli con show --active` |
+| `nm_activate` rollback | `nmcli con rollback <checkpoint>` | On execute failure | N/A |
+
+## Container Runtime
+
+### Mounts
+| Host Path | Container Path | Purpose |
+|-----------|----------------|---------|
+| `/proc` | `/host/proc` | Process/kernel info |
+| `/sys` | `/host/sys` | Hardware, DMI |
+| `/etc` | `/host/etc` | OS release, resolv.conf |
+| `/run/user` | `/run/user` | User systemd bus |
+| `/var/run/dbus` | `/var/run/dbus` | System dbus (NM, systemd) |
+| `/sys/class/dmi` | `/sys/class/dmi` | Hardware IDs |
+
+### Capabilities
+| Capability | Used For |
+|------------|----------|
+| `SYS_ADMIN` | `statvfs` on host root, some `/proc` reads |
+| `SYS_RESOURCE` | Resource limits, `getloadavg` |
+| `NET_ADMIN` | `nmcli` operations |
+| `CAP_DAC_READ_SEARCH` | Read root-owned files via mounts |
+
+### Network
+- `network_mode: host` — Direct access to host interfaces, `localhost` = host
+- `pid: host` — Access to host process namespace (for `--user` systemd)
+
+## Security Model
+
+### Threat: Unauthorized Access
+- **Mitigation**: Rotating access code file (600 perms), never in URLs/logs
+- **Session**: HttpOnly, SameSite=Strict, 8h TTL, SHA256 stored
+- **Host/Origin**: Must match `http://127.0.0.1:PORT` or `http://localhost:PORT`
+- **CSRF**: `Sec-Fetch-Site: cross-site` rejected, Origin required for POST
+
+### Threat: Command Injection
+- **Mitigation**: Fixed argv arrays, no shell, `subprocess.Popen`/`run` with explicit args
+- **Paths**: Absolute (`/usr/bin/nmcli`), no `$PATH` search
+- **Env**: Minimal `{"PATH": "/usr/bin:/usr/sbin", "LC_ALL": "C"}`
+
+### Threat: Privilege Escalation
+- **Mitigation**: Runs as unprivileged user in container
+- **Actions**: Only `--user` systemd (no sudo), NM profile activation (user-scoped or polkit)
+- **Rollback**: NM checkpoint created before activation, auto-rollback on failure
+
+### Threat: Data Leakage
+- **Mitigation**: No telemetry, no external requests except approved connectivity checks
+- **Audit**: Redacts secrets (tokens, passwords) — only stores parameter names/values
+- **Logs**: Access code never written to stdout/stderr
+
+## Frontend Architecture
+
+```
+index.html (served by /)
+├── CSS: Custom properties, responsive grid, dark-mode ready
+├── JS: Vanilla ES6, no dependencies
+│   ├── State: paused, signedIn, current, lastResult, pendingApproval
+│   ├── Renderers: render(), renderConnectivity(), renderServices(), renderProfiles(), renderAudit()
+│   ├── API: fetch() with credentials: 'same-origin'
+│   ├── Flow: refresh() → /api/status → render*() → updateState()
+│   └── Approval: requestApproval() → modal → executeApproval() → /api/execute
+└── Sections: System, Hardware, Network, Connectivity, Actions, Audit, Diagnostics
+```
+
+### State Machine
+```
+[Boot] → [Login] → [Dashboard] ↔ [Pause/Refresh]
+                ↓
+          [Request Approval] → [Preview Modal] → [Execute] → [Verify] → [Dashboard]
+```
+
+## Testing Strategy
+
+| Layer | Tool | Coverage |
+|-------|------|----------|
+| Unit | `unittest` + `unittest.mock` | Collectors, cache, approval, audit, endpoint validation |
+| Integration | `unittest` + `http.client` | Full HTTP stack: auth, CSRF, logout, session expiry |
+| Contract | Fixtures + mocks | Malformed input, timeouts, permission errors, unavailable sensors |
+| Smoke | Manual / browser | Full UI flow, container mounts, real system data |
+
+Run: `python3 -m unittest discover -s tests -v` (24 tests, ~3s)
+
+## Extensibility Points
+
+1. **New Collectors** — Add to `snapshot()`, update `SnapshotCache._observe()`
+2. **New Connectivity Checks** — Extend `connectivity_checks()`, `connectivity_diagnosis()`
+3. **New Actions** — Add `action_*` functions, register in `/api/approve` and `/api/execute`
+4. **New API Endpoints** — Add to `Handler.do_GET/do_POST`
+5. **Frontend Sections** — Add HTML section + renderer + nav link
+6. **Auth Policies** — Extend `session_valid()`, `allowed_request()`
+
+## Performance Characteristics
+
+| Metric | Value |
+|--------|-------|
+| Snapshot latency | ~50-100ms (local commands) |
+| Connectivity latency | ~2-5s (sequential probes) |
+| Memory footprint | ~15-25 MB (Python + SQLite) |
+| CPU (idle) | <1% |
+| Cache coalescing | 10s window, unlimited concurrent readers |
+| Audit DB size | ~1 KB per action |
+
+## Failure Modes
+
+| Component | Failure | Behavior |
+|-----------|---------|----------|
+| `ip` command | Missing/timeout | `state: "unavailable"`, detail logged |
+| `systemctl --user` | No user bus | `state: "unavailable"`, empty list |
+| `nmcli` | No NM/timeout | `state: "unavailable"`, actions disabled |
+| SQLite | Disk full/perm | Exception caught, audit skipped, action continues |
+| Network probe | Timeout/refused | `state: "unavailable"`, diagnosis reflects |
+| Container mount | Missing path | Reads return `unavailable`, no crash |
+
+---
+
+*Generated from implementation as of 2026-09-20*

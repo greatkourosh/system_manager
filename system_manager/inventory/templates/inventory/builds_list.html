@@ -13,7 +13,7 @@
   <tbody>
     {% for build in builds %}
     <tr>
-      <td><a href="{{ url_for('inventory_api.build_detail', build_id=build.id) }}">{{ build.name }}</a></td>
+      <td><a href="{{ url_for('inventory.inventory_api.build_detail', build_id=build.id) }}">{{ build.name }}</a></td>
       <td>{{ build.type }}</td>
       <td>{{ build.components|length }}</td>
       <td>{{ build.status }}</td>

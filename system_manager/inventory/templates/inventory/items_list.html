@@ -34,7 +34,7 @@
   <tbody>
     {% for item in items %}
     <tr>
-      <td><a href="{{ url_for('inventory_api.item_detail', item_id=item.id) }}">{{ item.name }}</a></td>
+      <td><a href="{{ url_for('inventory.inventory_api.item_detail', item_id=item.id) }}">{{ item.name }}</a></td>
       <td>{{ item.category }}</td>
       <td>{{ item.status }}</td>
       <td>{{ item.location or "—" }}</td>
