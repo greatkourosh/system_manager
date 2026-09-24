@@ -1,7 +1,11 @@
 """System Manager — a Flask dashboard that hosts feature modules."""
+import os
+import tempfile
+from pathlib import Path
+
 from flask import Flask, jsonify, render_template
 
-from . import status
+from . import auth, status
 from .organizer import ORGANIZER_PATH, is_available, organizer_blueprint
 from .inventory import inventory_blueprint, is_available as inventory_available
 
@@ -10,15 +14,46 @@ __all__ = ["create_app"]
 
 def create_app(config=None):
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
+    app.config.update(
+        ORGANIZER_PATH=ORGANIZER_PATH,
+        DISABLE_AUTH=os.environ.get("DISABLE_AUTH", "0") == "1",
+    )
     if config:
-        app.config.update(config)
+        # config overrides env-derived defaults (tests use this to force auth on/off)
+        app.config.update({key: value for key, value in config.items()
+                           if not key.startswith("SECURITY") and key != "AUDIT"})
+    if app.config.get("AUDIT_PATH"):
+        app.config["AUDIT_PATH"] = app.config["AUDIT_PATH"]
+    else:
+        audit_dir = Path(tempfile.mkdtemp(prefix="system-manager-"))
+        app.config["AUDIT_PATH"] = str(audit_dir / "actions.db")
+        app.config["TEMP_DIR"] = str(audit_dir)
+
+    security = auth.Security()
+    security.approval = auth.Approval()
+    app.config["SECURITY"] = security
+    app.config["AUDIT"] = auth.ActionAudit(app.config["AUDIT_PATH"])
+
+    app.register_blueprint(auth.auth_blueprint())
     app.register_blueprint(organizer_blueprint())
     app.register_blueprint(inventory_blueprint())
-    app.config["ORGANIZER_PATH"] = ORGANIZER_PATH
+
+    @app.context_processor
+    def inject_modules():
+        return {"modules": modules()}
 
     @app.route("/health")
     def health():
         return jsonify({"status": "ok"})
+
+    def _env_authenticated():
+        if auth.auth_disabled():
+            return True
+        return auth.require_session() is not None
+
+    @app.context_processor
+    def inject_common():
+        return {"env": {"authenticated": _env_authenticated()}}
 
     @app.route("/")
     def index():
@@ -31,10 +66,14 @@ def create_app(config=None):
 
     @app.route("/api/status")
     def api_status():
+        if auth.require_session() is None:
+            return jsonify({"error": "Unlock this dashboard with the local access code."}), 401
         return jsonify(status.collect())
 
     @app.route("/api/series")
     def api_series():
+        if auth.require_session() is None:
+            return jsonify({"error": "Unlock this dashboard with the local access code."}), 401
         return jsonify(status.history())
 
     @app.route("/modules")

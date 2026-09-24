@@ -2,38 +2,26 @@
 
 ## Overview
 
-System Manager is a single-file Python HTTP server (`server.py`) with an embedded HTML/JS frontend (`index.html`). It runs unprivileged but accesses host system state via mounted paths in container mode.
+The canonical app is a **Flask application** (`system_manager/`) that mounts feature modules as blueprints. It serves Jinja templates + a small vanilla-JS dashboard and runs unprivileged, reading host state via the collector functions from the sibling `server.py`.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                        Browser                                │
-│  http://localhost:4000/  (or 127.0.0.1:8765)                  │
+│  http://localhost:4000/  (gunicorn → run.py)                  │
 └─────────────────────┬───────────────────────────────────────┘
                       │ HTTP/JSON
                       ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  server.py — ThreadingHTTPServer                            │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │ Handler (BaseHTTPRequestHandler)                    │   │
-│  │   GET  /              → index.html                  │   │
-│  │   GET  /api/status    → full snapshot               │   │
-│  │   GET  /api/*         → sub-APIs                    │   │
-│  │   POST /api/*         → actions, config, auth       │   │
-│  └─────────────────────────────────────────────────────┘   │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │ SnapshotCache (coalesced 10s / 60s)                 │   │
-│  │   snapshot() → system, hardware, memory, fs, net    │   │
-│  │   connectivity_checks() → gateway, dns, https       │   │
-│  └─────────────────────────────────────────────────────┘   │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │ Actions: user_services, nm_profiles, service_*, nm_*│   │
-│  │   Preconditions → Approval (TTL, single-use)        │   │
-│  │   Execute → Verify → Audit (SQLite)                 │   │
-│  └─────────────────────────────────────────────────────┘   │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │ Auth: rotating file token, SHA256 session cookies   │   │
-│  │   Host/Origin/CSRF validation                       │   │
-│  └─────────────────────────────────────────────────────┘   │
+│  system_manager/ (Flask app, via run.py)                    │
+│  ├─ status.py      — live snapshot (imports server.snapshot)│
+│  ├─ auth.py        — login/session, approve→execute→audit   │
+│  │                  (services, NM profiles, Access code)     │
+│  ├─ organizer.py   — mounts folder_organizer app at          │
+│  │                  /organizer (URL rewriter)                │
+│  ├─ inventory/     — hardware inventory blueprint + SQLite   │
+│  └─ __init__.py    — create_app(), /, /api/status, /modules  │
+│                                                    │         │
+│   templates/ (Jinja) · static/ (vanilla JS/CSS)              │
 └─────────────────────┬───────────────────────────────────────┘
                       │ subprocess / syscalls
         ┌─────────────┼─────────────┐
@@ -41,6 +29,8 @@ System Manager is a single-file Python HTTP server (`server.py`) with an embedde
    /proc/...    /sys/class/dmi   nmcli, systemctl, ip
    /etc/...     os.statvfs       (host binaries via mounts)
 ```
+
+> **Standalone panel** — `server.py` is still a complete stdlib-only HTTP server (`ThreadingHTTPServer`) serving its own embedded `index.html`; it runs the interactive connectivity diagnostics, access-code auth, actions, and audit that the Flask port currently routes through `system_manager/auth.py`. The two share the `server.py` collectors. Dashboard is the Flask app; the standalone panel remains for the connectivity checker not yet exposed under Flask.
 
 ## Core Modules
 
@@ -182,7 +172,8 @@ index.html (served by /)
 | Contract | Fixtures + mocks | Malformed input, timeouts, permission errors, unavailable sensors |
 | Smoke | Manual / browser | Full UI flow, container mounts, real system data |
 
-Run: `python3 -m unittest discover -s tests -v` (24 tests, ~3s)
+Run: `python3 -m unittest discover -s tests -v` (37 tests, ~3s)
+Test modules: `test_server.py` (collectors/cache/HTTP on the standalone panel), `test_flask_app.py` (Flask auth + approval flow), `test_inventory.py` (store + API).
 
 ## Extensibility Points
 
@@ -217,4 +208,5 @@ Run: `python3 -m unittest discover -s tests -v` (24 tests, ~3s)
 
 ---
 
-*Generated from implementation as of 2026-09-20*
+*Updated 2026-09-24 to reflect the Flask-first architecture, the 
+`system_manager/auth.py` port, and the SQLite-backed inventory store.*

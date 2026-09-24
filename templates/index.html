@@ -8,6 +8,18 @@
   </p>
 </div>
 
+{% if not env.authenticated %}
+<div class="lock-banner" id="lockBanner">
+  <strong>Dashboard is locked</strong>
+  <span>Enter the local access code to unlock live readings.</span>
+  <form class="lock-form" id="lockForm">
+    <input type="password" id="lockCode" placeholder="access code" autocomplete="off" required>
+    <button type="submit">Unlock</button>
+  </form>
+  <small class="muted lock-error" id="lockError"></small>
+</div>
+{% endif %}
+
 <section class="stats">
   <div class="stat">
     <div class="stat-label">Memory</div>
@@ -39,7 +51,15 @@
     <h2>Modules</h2>
     <div class="module-list">
       {% for m in modules %}
-      <a class="module {% if not m.available %}module-off{% endif %}" href="{% if m.available %}{{ url_for(m.url, subpath='') }}{% else %}#{% endif %}">
+      {% if m.available %}
+      {% if m.url == 'organizer.proxy' %}
+      <a class="module" href="{{ url_for('organizer.proxy', subpath='') }}">
+      {% else %}
+      <a class="module" href="{{ url_for(m.url) }}">
+      {% endif %}
+      {% else %}
+      <a class="module module-off" href="#">
+      {% endif %}
         <div class="module-head">
           <span class="dot {% if m.available %}dot-ok{% else %}dot-bad{% endif %}"></span>
           <strong>{{ m.name }}</strong>
@@ -77,6 +97,20 @@
         <tr><th>Kernel</th><td id="hwKernel">—</td></tr>
       </tbody>
     </table>
+  </div>
+
+  <div class="card">
+    <h2>Actions</h2>
+    <div id="actionsBox" class="muted">
+      <p>Loading services and profiles…</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Audit</h2>
+    <div id="auditBox" class="muted">
+      <p>The SQLite audit log is populated once approved actions run.</p>
+    </div>
   </div>
 </section>
 {% endblock %}

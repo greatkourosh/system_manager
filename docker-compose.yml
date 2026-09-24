@@ -22,4 +22,3 @@ services:
       - NET_ADMIN
       - CAP_DAC_READ_SEARCH
     restart: unless-stopped
-    command: ["python3", "server.py", "--port", "4000"]

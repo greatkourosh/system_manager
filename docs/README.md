@@ -7,11 +7,11 @@ Local system management dashboard for Linux. Runs in a container with host acces
 ```bash
 # Container (recommended)
 docker compose up -d --build
-# Open http://localhost:4000/
+# Open http://localhost:4000/  (gunicorn -> run.py -> Flask app)
 
-# Local development
-python3 server.py --port 8765
-# Open http://127.0.0.1:8765/ (read access code from stdout)
+# Local development (Flask)
+python3 run.py
+# Open http://127.0.0.1:8200/
 ```
 
 ## Features
@@ -27,10 +27,15 @@ python3 server.py --port 8765
 
 ## Architecture
 
-- **Single-file backend** (`server.py`, ~800 lines, stdlib only)
-- **Embedded frontend** (`index.html` with vanilla JS/CSS)
+- **Flask app** (`system_manager/`) hosting feature modules via blueprints
+  - `status` — live system snapshot (reuses `server.py` collectors)
+  - `auth` — access-code auth + approved actions + SQLite audit
+  - `organizer` — mounts the sibling folder_organizer app under `/organizer`
+  - `inventory` — hardware inventory (SQLite store, CRUD + export)
+- **Templates/static** under `templates/`, `static/` (Jinja, vanilla JS/CSS)
+- **Standalone panel** (`server.py`, stdlib-only, `--port 8765/4000`) kept for the interactive connectivity diagnostics not yet wired into Flask
 - **Containerized** with host mounts for `/proc`, `/sys`, `/etc`, dbus
-- **24 unit/integration tests** (collectors, auth, actions, connectivity)
+- **37 unit/integration tests** (`tests/test_server.py`, `tests/test_flask_app.py`, `tests/test_inventory.py`)
 
 ## Documentation
 
@@ -42,7 +47,7 @@ python3 server.py --port 8765
 ## Requirements
 
 - Linux (Ubuntu 24.04+ tested)
-- Docker + Compose (container) or Python 3.12+ (local)
+- Docker + Compose (container) or Python 3.12+ with `pip install -r requirements.txt` (Flask, gunicorn)
 - Host: `systemd`, `NetworkManager`, `iproute2`
 
 ## License

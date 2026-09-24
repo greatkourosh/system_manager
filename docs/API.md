@@ -1,10 +1,10 @@
 # API Reference
 
-Base URL: `http://localhost:4000/` (container) or `http://127.0.0.1:8765/` (local)
+Base URL: `http://localhost:4000/` (container, gunicorn) or `http://127.0.0.1:8200/` (local `run.py`).
 
 ## Authentication
 
-All API endpoints except `/`, `/api/login`, `/api/logout` require a valid session cookie.
+All API endpoints except `/`, `/api/login`, `/api/logout` require a valid session cookie when auth is enabled.
 
 ### Headers Required
 ```
@@ -19,12 +19,14 @@ Host: localhost:4000             # Required for all requests
 3. **Logout**: `POST /api/logout` → invalidates session, clears cookie
 
 ### Access Code
-- Printed to stdout on server start: `Local access code file: /tmp/system-manager-XXXXXX/access-code`
+- Written to the file at `SYSTEM_MANAGER_AUTH_TOKEN_PATH` (600 perms) when set, with the same behavior as the standalone panel
 - Rotates after each successful login
 - Never appears in URLs, logs, or responses
 
 ### Disable Auth (Development)
 Set `DISABLE_AUTH=1` in `.env` or environment. All endpoints become public.
+
+> **Note:** In the container the app runs with `DISABLE_AUTH=1` from `.env`; a session cookie is not required there. The login/audit endpoints still exist for when auth is enabled.
 
 ---
 
@@ -81,37 +83,8 @@ Returns the HTML dashboard. No auth required.
 - `"unavailable"` — `value: null`, `detail` explains why
 - `"stale"` — cached data >30s old or collection error
 
-### `GET /api/connectivity`
-**Auth required.** Returns connectivity configuration only.
-
-**Response:**
-```json
-{
-  "enabled": false,
-  "endpoints": ["https://example.com/"],
-  "destination": {"host": "example.com", "port": 443},
-  "last_run": null
-}
-```
-
 ### `POST /api/connectivity`
-**Auth required.** Enable/disable connectivity checks and set approved endpoint.
-
-**Request:**
-```json
-{
-  "enabled": true,
-  "endpoints": ["https://example.com/"]
-}
-```
-
-**Validation:**
-- Max 3 endpoints
-- Must be HTTPS, no query string, no credentials, no fragment
-- Hostname must be valid (alphanumeric, hyphen, dot; max 253 chars)
-- Port 1-65535 (default 443)
-
-**Response:** Same as `GET /api/connectivity`
+**Only in the standalone `server.py` panel.** The Flask app (`system_manager/`) reserves this path but returns `501` — interactive connectivity checks are still standalone-only and not yet wired into the Flask dashboard. Endpoint validation rules (HTTPS only, no query/credentials, max 3) live in `server.py:valid_endpoint`.
 
 ### `GET /api/services`
 **Auth required.** List user-level systemd services.

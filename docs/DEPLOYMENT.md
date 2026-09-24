@@ -9,7 +9,7 @@
 
 ### Quick Start
 ```bash
-cd /media/kourosh/VMSSD/projects/system_manager
+cd /media/kourosh/DEVNVME/projects/system_manager
 docker compose up -d --build
 # Open http://localhost:4000/
 ```
@@ -20,6 +20,7 @@ Create `.env` (optional):
 # .env
 DISABLE_AUTH=1          # Set to 0 to enable access code (production)
 # HOST_ROOT=/host       # Already set in docker-compose.yml
+# SYSTEM_MANAGER_AUTH_TOKEN_PATH=/data/access-code   # when auth enabled
 ```
 
 ### Volumes
@@ -65,6 +66,13 @@ docker exec system-manager curl -sf http://localhost:4000/api/status | jq -e '.s
 
 ### Run
 ```bash
+pip install -r requirements.txt
+python3 run.py            # Flask app on http://127.0.0.1:8200/
+# Authorisation disabled by default; set DISABLE_AUTH=0 + a token path to enable.
+```
+
+The standalone stdlib panel (connectivity/actions reference) is still:
+```bash
 python3 server.py --port 8765
 # Output:
 # System Manager: http://127.0.0.1:8765
@@ -72,16 +80,12 @@ python3 server.py --port 8765
 # Audit database: /tmp/system-manager-XXXXXX/actions.db
 ```
 
-### Access Code
-```bash
-cat /tmp/system-manager-XXXXXX/access-code
-# Paste in browser at http://127.0.0.1:8765/
-```
-
 ### Environment Variables
 ```bash
-DISABLE_AUTH=1 python3 server.py --port 8765  # Skip login
-HOST_ROOT=/host python3 server.py              # Container-style paths
+DISABLE_AUTH=1 python3 run.py                       # Skip login (Flask)
+SYSTEM_MANAGER_AUTH_TOKEN_PATH=/data/access-code    # Write rotating code (Flask)
+DISABLE_AUTH=0 python3 server.py --port 8765        # standalone panel, auth on
+HOST_ROOT=/host python3 server.py                   # Container-style paths
 ```
 
 ---
@@ -180,14 +184,14 @@ tar -czf backup-config-$(date +%F).tar.gz .env docker-compose.yml
 
 ### Container
 ```bash
-cd /media/kourosh/VMSSD/projects/system_manager
+cd /media/kourosh/DEVNVME/projects/system_manager
 git pull
 docker compose up -d --build
 ```
 
 ### Local
 ```bash
-cd /media/kourosh/VMSSD/projects/system_manager
+cd /media/kourosh/DEVNVME/projects/system_manager
 git pull
 # Restart process
 ```

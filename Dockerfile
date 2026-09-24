@@ -8,8 +8,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY server.py index.html ./
+
+# Flask application
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY run.py server.py index.html ./
+COPY system_manager/ system_manager/
+COPY templates/ templates/
+COPY static/ static/
 
 EXPOSE 4000
 
-CMD ["python3", "server.py", "--port", "4000"]
+CMD ["gunicorn", "--bind", "0.0.0.0:4000", "--workers", "1", "--threads", "4", "run:app"]
