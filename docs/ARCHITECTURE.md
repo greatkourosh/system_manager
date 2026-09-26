@@ -140,8 +140,11 @@ Indexes on `ts` and `token_hash`. Parameterized queries only.
 >    `XDG_RUNTIME_DIR` from `/run/user/<uid>` and only when that directory
 >    actually exists, which is the `pid: host` + non-root arrangement working
 >    as intended. Covered by `SubprocessEnvTests` in
->    `tests/test_flask_app.py`, but only against stubs — **still worth a live
->    check** on a running container.
+>    `tests/test_flask_app.py`, but only against stubs. **Verified live
+>    2026-09-26** against the running container: `/api/services` and
+>    `/api/profiles` both return `{"state": "observed"}` with real host
+>    data. `nm_activate` remains the one action refused — see the
+>    checkpoint note in DEPLOYMENT.md.
 >
 > Causes 1 and 2 are container-config issues; cause 3 is in
 > `system_manager/auth.py`. See CONTINUATION.md for the open item.
@@ -224,7 +227,7 @@ index.html (served by /)
 | Smoke | Manual / browser | Full UI flow, container mounts, real system data |
 
 Run: `python3 -m pytest -q` (67 tests + 40 subtests, ~2s)
-Test modules: `test_server.py` (19 — collectors, cache and actions), `test_connectivity.py` (11 — config, scan cadence, endpoint validation, API auth), `test_flask_app.py` (10 — Flask auth + approval flow), `test_lock.py` (9 — module blueprint gating), `test_inventory.py` (5 — store + API).
+Test modules: `test_server.py` (19 — collectors, cache and actions), `test_connectivity.py` (11 — config, scan cadence, endpoint validation, API auth), `test_flask_app.py` (17 — Flask auth, approval flow, subprocess env), `test_lock.py` (15 — module blueprint gating and the organizer's URL rewriter), `test_inventory.py` (5 — store + API). These sum to 67.
 
 ## Extensibility Points
 
