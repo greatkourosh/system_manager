@@ -211,7 +211,7 @@ class Security:
                 raise PermissionError("Incorrect access code. Use the current code from the local credential file.")
             self.failed_logins = 0
             token = secrets.token_urlsafe(32)
-            self.sessions = {_hash(token): now + self.SESSION_TTL}
+            self.sessions[_hash(token)] = now + self.SESSION_TTL
             if self.credential_path is not None:
                 self.issue_credential(self.credential_path)
             else:

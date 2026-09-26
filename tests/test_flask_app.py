@@ -46,6 +46,19 @@ class AuthApiTests(unittest.TestCase):
         # code rotated after login
         self.assertNotEqual(self.security.credential, "correct-code")
 
+    def test_second_login_keeps_the_first_session_alive(self):
+        # Unlocking in a second tab used to wipe the first tab's session, so
+        # every organizer link then bounced to the dashboard root.
+        first = self.app.test_client()
+        self.assertEqual(first.post("/api/login", json={"code": "correct-code"}).status_code, 200)
+        second = self.app.test_client()
+        self.security.credential = "second-code"
+        self.assertEqual(second.post("/api/login", json={"code": "second-code"}).status_code, 200)
+
+        self.assertEqual(first.get("/api/status").status_code, 200)
+        self.assertEqual(first.get("/organizer/scan").status_code, 200)
+        self.assertEqual(second.get("/api/status").status_code, 200)
+
     def test_auth_disabled_allows_status(self):
         app, security, _ = make_app(auth_enabled=False)
         client = app.test_client()
