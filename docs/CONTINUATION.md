@@ -4,7 +4,7 @@
 Local system management dashboard for Linux (Ubuntu 24.04+), running in a container with host access. Provides read-only system observation, opt-in connectivity diagnostics, and approved actions with audit logging.
 
 **App:** Flask app (`system_manager/`) hosting feature modules as blueprints, served by gunicorn in the container and `run.py` in dev.
-**Collector library:** `server.py` (stdlib-only, 534 lines) is a library, not an app — connectivity, actions and audit all live in `system_manager/`, which imports its collectors. Its standalone HTTP panel was retired 2026-09-26.
+**Collector library:** `server.py` (stdlib-only, 540 lines) is a library, not an app — connectivity, actions and audit all live in `system_manager/`, which imports its collectors. Its standalone HTTP panel was retired 2026-09-26.
 
 ---
 
@@ -137,7 +137,8 @@ silently changes nothing, which is what made the first attempt look unfixed.
 `/api/profiles` returns the host's actual NM connections, and the guardrail is
 intact — `dbus`, `polkit`, `systemd-udevd` and `network-manager` are all still
 refused as critical while `cups.service` issues an approval token. 72 tests pass
-(+6 `SubprocessEnvTests`).
+(+6 `SubprocessEnvTests`) — the count as of this milestone; the suite is 67
+now, after the standalone panel's HTTP tests were retired.
 
 **Still broken, and not fixable from here: NM checkpoints.** `nm_activate` refuses
 to run without one, so profile activation has no rollback safety net. Two
@@ -254,7 +255,7 @@ docker compose exec system-manager cat /data/access-code
 ### Tests
 ```bash
 python3 -m pytest -q
-# 72 tests + 40 subtests, ~4s
+# 67 tests + 40 subtests, ~2s
 ```
 
 ---
@@ -319,7 +320,40 @@ written; `scripts/` does not exist in this project.
 
 ## Git Status
 
-Clean through `2252b33` ("docs: scope the requested subtitle auto-fetch task"). Milestone 5 completed in `d1ac423`. The 2026-09-26 verification pass (Milestone 6) was documentation-only. A later pass on the same day fixed four container/host bugs — see the Milestone 7 entry. 72 tests + 40 subtests pass (re-verified 2026-09-26, ~4s).
+Clean through `c492da8` ("Retire the standalone panel's HTTP layer, keep the collectors"). Milestone 5 completed in `d1ac423`. The 2026-09-26 verification pass (Milestone 6) was documentation-only. A later pass on the same day fixed four container/host bugs — see the Milestone 7 entry, and Milestone 9 below. 67 tests + 40 subtests pass (re-verified 2026-09-26, ~2s).
+
+### 2026-09-26 — Milestone 9: stale-claim sweep, video library, panel retirement
+
+Three pieces of work, all verified against the running stack rather than
+asserted.
+
+**Docs were wrong in six places.** Test counts said 66 then 72 against an
+actual 72 (now 67); `DEPLOYMENT.md`'s health check used `curl` and `jq`, which
+the image does not install, so the documented command could not run; and the
+"verify the action features against a live container" step was still listed as
+open after it had been done. Corrected in `823da3b` and `e0b8eab`.
+
+**Video library filters and badges shipped** in the `folder_organizer`
+checkout — decade, rating, kind, episode-count and size filters, five sorts, and
+a "Recommended" badge. The two hard-won traps are written up under the
+Requested-filters section below: Jinja resolves `c.pop` to the dict's built-in
+`pop` method rather than the `pop` field, and a blank flag carried inside a
+sort key gets inverted by `reverse=True`, floating unknown years to the top.
+Still uncommitted there, and `app.py`'s diff mixes it with unrelated
+pre-existing programs/CSV edits.
+
+**The standalone panel is gone.** `server.py` is a library now — 827 → 540
+lines, with `LocalServer`, `Handler`, `main()`, `--port` and the orphaned
+`index.html` removed. All 24 symbols `system_manager/` imports still resolve,
+verified by introspection rather than by reading. A `__main__` guard was added,
+because a stripped module with no entry point exits 0 and silently does nothing
+when run as a script — that reads as success rather than as "this is a library".
+The test count dropping 72 → 67 is the five HTTP-layer tests that went with it.
+
+**Full suite, 2026-09-26:** system_manager 67 passed + 40 subtests;
+folder_organizer 35 passed + 6 subtests offline, and 73 passed / 0 failed
+against its live container. Every dashboard route answers 200 through the
+port-4000 proxy.
 
 > **The three container bugs from Milestone 6 are fixed and verified against a live bus** — see Milestone 8. `docker-compose.yml` corrects `DBUS_SYSTEM_BUS_ADDRESS` and adds `security_opt: [apparmor=unconfined]`; `auth.py` has a per-call `_subprocess_env()`. `/api/services` and `/api/profiles` both return `observed` with real host data. Two caveats worth keeping: the AppArmor line **is** a deliberate security-boundary loosening, and the `systemctl --user` fix turned out to be the stripped subprocess env, not the uid. **NM checkpoint rollback remains unavailable** (upstream nmcli + polkit limits, reproducible on the host), so `nm_activate` still fails closed.
 

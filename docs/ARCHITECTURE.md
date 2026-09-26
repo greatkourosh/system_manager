@@ -223,7 +223,7 @@ index.html (served by /)
 | Contract | Fixtures + mocks | Malformed input, timeouts, permission errors, unavailable sensors |
 | Smoke | Manual / browser | Full UI flow, container mounts, real system data |
 
-Run: `python3 -m pytest -q` (72 tests + 40 subtests, ~4s)
+Run: `python3 -m pytest -q` (67 tests + 40 subtests, ~2s)
 Test modules: `test_server.py` (19 — collectors, cache and actions), `test_connectivity.py` (11 — config, scan cadence, endpoint validation, API auth), `test_flask_app.py` (10 — Flask auth + approval flow), `test_lock.py` (9 — module blueprint gating), `test_inventory.py` (5 — store + API).
 
 ## Extensibility Points
