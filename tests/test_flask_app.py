@@ -137,5 +137,52 @@ class ApprovalFlowTests(unittest.TestCase):
         self.assertIn(payload["state"], ("observed", "unavailable"))
 
 
+class SubprocessEnvTests(unittest.TestCase):
+    """The env handed to systemctl/nmcli is what decides whether they work."""
+
+    def test_env_always_carries_path_and_locale(self):
+        with patch.dict(os.environ, {}, clear=True):
+            env = auth._subprocess_env()
+        self.assertEqual(env["PATH"], "/usr/bin")
+        self.assertEqual(env["LC_ALL"], "C")
+
+    def test_user_bus_address_is_derived_from_the_running_uid(self):
+        with patch.dict(os.environ, {}, clear=True):
+            with patch.object(auth.os, "getuid", return_value=1000):
+                with patch.object(auth.os.path, "isdir", return_value=True):
+                    env = auth._subprocess_env()
+        self.assertEqual(env["XDG_RUNTIME_DIR"], "/run/user/1000")
+        self.assertEqual(env["DBUS_SESSION_BUS_ADDRESS"],
+                         "unix:path=/run/user/1000/bus")
+
+    def test_xdg_runtime_dir_from_the_environment_wins(self):
+        with patch.dict(os.environ, {"XDG_RUNTIME_DIR": "/run/user/1500"}, clear=True):
+            with patch.object(auth.os.path, "isdir", return_value=True):
+                env = auth._subprocess_env()
+        self.assertEqual(env["XDG_RUNTIME_DIR"], "/run/user/1500")
+
+    def test_missing_runtime_dir_is_omitted_rather_than_guessed(self):
+        # A wrong XDG_RUNTIME_DIR makes systemctl fail with a transport error
+        # that looks like "the tool is broken"; better to say nothing.
+        with patch.dict(os.environ, {}, clear=True):
+            with patch.object(auth.os, "getuid", return_value=1000):
+                with patch.object(auth.os.path, "isdir", return_value=False):
+                    env = auth._subprocess_env()
+        self.assertNotIn("XDG_RUNTIME_DIR", env)
+        self.assertNotIn("DBUS_SESSION_BUS_ADDRESS", env)
+
+    def test_system_bus_address_is_not_prefixed_with_host_root(self):
+        # /host only carries /proc, /sys and /etc -- there is no /host/run.
+        with patch.object(auth.os.path, "exists", return_value=True):
+            env = auth._subprocess_env()
+        self.assertEqual(env["DBUS_SYSTEM_BUS_ADDRESS"],
+                         "unix:path=/run/dbus/system_bus_socket")
+
+    def test_absent_system_bus_is_omitted(self):
+        with patch.object(auth.os.path, "exists", return_value=False):
+            env = auth._subprocess_env()
+        self.assertNotIn("DBUS_SYSTEM_BUS_ADDRESS", env)
+
+
 if __name__ == "__main__":
     unittest.main()

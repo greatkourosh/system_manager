@@ -11,6 +11,14 @@ services:
     # still only readable by this uid.
     user: "${UID:-1000}:${GID:-1000}"
     pid: host
+    # docker-default's D-Bus rule denies nmcli's system-bus handshake with
+    # "An AppArmor policy prevents this sender from sending this message", so
+    # profile activation can never succeed under the default profile. This
+    # loosens a security boundary: the container keeps pid: host and
+    # network_mode: host anyway, so confinement is already partial. Drop this
+    # line and NetworkManager actions go back to failing closed.
+    security_opt:
+      - apparmor=unconfined
     volumes:
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
@@ -35,7 +43,12 @@ services:
       # expose the dashboard. Nothing is contacted without a session.
       - DISABLE_AUTH=${DISABLE_AUTH:-0}
       - HOST_ROOT=/host
-      - DBUS_SYSTEM_BUS_ADDRESS=unix:path=/host/run/dbus/system_bus_socket
+      # The socket is mounted from the host at /var/run/dbus, and /var/run is a
+      # symlink to /run inside the image, so the path nmcli must use is
+      # /run/dbus/system_bus_socket. The old /host/run/dbus/... value pointed
+      # into a prefix that only carries /proc, /sys and /etc -- nothing under
+      # /host/run exists, so the address never resolved.
+      - DBUS_SYSTEM_BUS_ADDRESS=unix:path=/run/dbus/system_bus_socket
       - SYSTEM_MANAGER_AUTH_TOKEN_PATH=${SYSTEM_MANAGER_AUTH_TOKEN_PATH:-/data/access-code}
     cap_add:
       - SYS_ADMIN

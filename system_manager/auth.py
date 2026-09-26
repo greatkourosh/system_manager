@@ -48,11 +48,33 @@ def _hash(token):
     return hashlib.sha256(token.encode()).hexdigest()
 
 
+def _subprocess_env():
+    """Build the environment for systemctl/nmcli calls.
+
+    Both tools need bus addresses, and a bare ``env=`` wipes them: systemctl
+    needs XDG_RUNTIME_DIR to find the per-user bus, and nmcli needs the system
+    bus address. Without these, "Could not connect" and "Transport endpoint is
+    not connected" are indistinguishable from the tool being broken.
+    """
+    env = {"PATH": "/usr/bin", "LC_ALL": "C"}
+    uid = os.getuid()
+    runtime_dir = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{uid}"
+    if os.path.isdir(runtime_dir):
+        env["XDG_RUNTIME_DIR"] = runtime_dir
+        env["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path={runtime_dir}/bus"
+    # /var/run is a symlink to /run, so the socket lives at /run/dbus -- not
+    # under the /host prefix, which only carries the mounts listed in compose.
+    socket = "/run/dbus/system_bus_socket"
+    if os.path.exists(socket):
+        env["DBUS_SYSTEM_BUS_ADDRESS"] = f"unix:path={socket}"
+    return env
+
+
 def command_output(argv, timeout=2, limit=2048):
     """Run a fixed-argv command and return its stdout, or None on failure."""
     try:
         result = subprocess.run(argv, capture_output=True, text=True, timeout=timeout,
-                                env={"PATH": "/usr/bin", "LC_ALL": "C"})
+                                env=_subprocess_env())
     except (OSError, subprocess.TimeoutExpired):
         return None
     if result.returncode:
@@ -254,7 +276,7 @@ def service_execute(action, name):
     try:
         result = subprocess.run(["/usr/bin/systemctl", "--user", action, name],
                                 capture_output=True, text=True, timeout=15,
-                                env={"PATH": "/usr/bin", "LC_ALL": "C"})
+                                env=_subprocess_env())
         return {"code": result.returncode, "stdout": result.stdout[:2048], "stderr": result.stderr[:2048]}
     except (OSError, subprocess.TimeoutExpired):
         return {"code": -1, "stdout": "", "stderr": "Execution timed out or failed."}
@@ -264,7 +286,7 @@ def service_verify(name):
     try:
         result = subprocess.run(["/usr/bin/systemctl", "--user", "is-active", name],
                                 capture_output=True, text=True, timeout=3,
-                                env={"PATH": "/usr/bin", "LC_ALL": "C"})
+                                env=_subprocess_env())
         return observed({"active": result.returncode == 0})
     except (OSError, subprocess.TimeoutExpired):
         return unavailable("Could not verify service state.")
@@ -310,7 +332,7 @@ def nm_rollback(checkpoint):
     try:
         result = subprocess.run(["/usr/bin/nmcli", "con", "rollback", checkpoint],
                                 capture_output=True, text=True, timeout=10,
-                                env={"PATH": "/usr/bin", "LC_ALL": "C"})
+                                env=_subprocess_env())
         return observed({"rollback": result.returncode == 0})
     except (OSError, subprocess.TimeoutExpired):
         return unavailable("Rollback failed.")
@@ -320,7 +342,7 @@ def nm_activate(profile):
     try:
         result = subprocess.run(["/usr/bin/nmcli", "con", "up", profile],
                                 capture_output=True, text=True, timeout=20,
-                                env={"PATH": "/usr/bin", "LC_ALL": "C"})
+                                env=_subprocess_env())
         return {"code": result.returncode, "stdout": result.stdout[:2048], "stderr": result.stderr[:2048]}
     except (OSError, subprocess.TimeoutExpired):
         return {"code": -1, "stdout": "", "stderr": "Activation timed out or failed."}
