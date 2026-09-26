@@ -339,8 +339,9 @@ a "Recommended" badge. The two hard-won traps are written up under the
 Requested-filters section below: Jinja resolves `c.pop` to the dict's built-in
 `pop` method rather than the `pop` field, and a blank flag carried inside a
 sort key gets inverted by `reverse=True`, floating unknown years to the top.
-Still uncommitted there, and `app.py`'s diff mixes it with unrelated
-pre-existing programs/CSV edits.
+Committed in that checkout as two commits, `5926396` (this work) and `038b2fa`
+(the programs pagination and CSV export whose diff was mixed into the same
+`app.py`) — see the Requested-filters section below.
 
 **The standalone panel is gone.** `server.py` is a library now — 827 → 540
 lines, with `LocalServer`, `Handler`, `main()`, `--port` and the orphaned
@@ -446,11 +447,11 @@ seasons, sub_count, title, total_bytes, video_count, year`.
    descending. Default to the current file order so the page looks unchanged
    until a sort is picked.
 
-**Status 2026-09-26: shipped.** Items 1–5 and the "Recommended" badge are
-implemented in the `folder_organizer` checkout (uncommitted — see below), with
-`tests/test_videos.py` (16 tests). Verified through the live container on
-`/organizer/videos`: all five sorts, every filter, and a paging sweep that
-returns 446 unique cards with no card repeated or dropped.
+**Status 2026-09-26: shipped and committed** as `5926396` in the
+`folder_organizer` checkout, with `tests/test_videos.py` (16 tests). Verified
+through the live container on `/organizer/videos`: all five sorts, every filter,
+and a paging sweep that returns 446 unique cards with no card repeated or
+dropped.
 
 Two things the implementation had to get right, both worth not re-breaking:
 
@@ -484,14 +485,17 @@ existing poster-cache pattern (`tmdb_client.py` → `data/posters_state.json`)
 rather than calling out to the network on page render. If neither is wanted,
 ship 1–5 and drop the RT idea — the page is still much more useful.
 
-**Uncommitted, in the `folder_organizer` checkout.** The work above is on disk
-but not committed. `app.py` and `templates/videos.html` also carry *unrelated*
-in-progress edits (programs pagination and a CSV export endpoint) that were
-already in the working tree before this work started, so `app.py`'s diff mixes
-both. Split or stage by hunk before committing; `tests/test_videos.py` is new
-and untracked. Suite is 35 passed + 6 subtests
+**Committed 2026-09-26, split by concern.** The work above is `5926396` in the
+`folder_organizer` checkout. `app.py` also carried *unrelated* in-progress
+programs work (pagination plus a CSV export endpoint) that predated this work,
+so its diff mixed both. They are now two commits: `5926396` (video filters and
+sorts, `tests/test_videos.py` — 16 tests) and `038b2fa` (programs pagination and
+`/programs/export.csv`, `tests/test_programs.py` — 10 tests). Each commit's
+staged content was byte-compared against an isolated single-concern tree and
+tested on its own before committing. Suite is 35 passed + 6 subtests
 (`python3 -m pytest tests/ -q --ignore=tests/test_app.py`, which needs no
-running server).
+running server), plus 73 passed / 0 failed for the live
+`python3 tests/test_app.py` against the container on :5001.
 
 **Two container notes, both of which cost time on 2026-09-26:**
 
