@@ -1,8 +1,15 @@
 services:
   system-manager:
     build: .
+    ports:
+      - "4000:4000"
     container_name: system-manager
-    network_mode: host
+    # Run as the invoking user so files the app writes into the mounted
+    # folder_organizer checkout (tag plans, proposals, exports) stay owned by
+    # you instead of root. The organizer is mounted rw because it writes there.
+    # The access code under ./data is chmod 0600 by the app itself, so it is
+    # still only readable by this uid.
+    user: "${UID:-1000}:${GID:-1000}"
     pid: host
     volumes:
       - /proc:/host/proc:ro

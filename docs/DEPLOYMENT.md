@@ -12,7 +12,7 @@
 cd /media/kourosh/DEVNVME/projects/system_manager
 docker compose up -d --build
 # Open http://localhost:4000/ and unlock with the access code.
-# The container runs as root, so the file is root-owned: read it with
+# The container runs as your host user, so this reads it as you:
 docker compose exec system-manager cat /data/access-code
 ```
 
@@ -33,8 +33,8 @@ whenever you need to log in again.
 Authentication is **on by default**. A clone with no `.env` starts locked; the
 access code is written to `./data/access-code` on the host (and regenerated on
 each successful login, so a leaked file alone is not enough). Because the
-container runs as root the file is mode `0600` and root-owned — read it with
-`docker compose exec` or `sudo cat`, and keep it out of version control.
+container runs as `${UID}` the file is mode `0600` and owned by you — read it
+with `docker compose exec` or `cat`, and keep it out of version control.
 
 ### Configuration
 `.env` is optional and untracked — copy `.env.example` to create one. It is
@@ -48,9 +48,9 @@ DISABLE_AUTH=1          # Opt out of the access code (development only)
 # HOST_ROOT=/host       # Already set in docker-compose.yml
 ```
 
-`DISABLE_AUTH=1` is for local development only. The container runs on
-`network_mode: host` with `SYS_ADMIN`, `NET_ADMIN` and a read-only `/etc`
-mount, so with auth disabled every `/api/*` endpoint — including
+`DISABLE_AUTH=1` is for local development only. The container runs with
+`SYS_ADMIN`, `NET_ADMIN` and a read-only `/etc` mount, so with auth disabled
+every `/api/*` endpoint — including
 `POST /api/execute`, which runs `systemctl` and NetworkManager commands — is
 reachable by anything that can reach port 4000. Leave it off unless you are
 running on an isolated network.
@@ -96,13 +96,35 @@ this. To enable the actions, add to `docker-compose.yml`:
 ```
 
 This is a deliberate loosening of the container's security boundary. It is
-defensible here only because the container already runs as root with
-`SYS_ADMIN`, `SYS_RESOURCE`, `NET_ADMIN` and `host` networking; see the
+defensible here only because the container already holds `SYS_ADMIN`,
+`SYS_RESOURCE`, `NET_ADMIN` and `CAP_DAC_READ_SEARCH`; see the
 limitations section in CONTINUATION.md before enabling it anywhere else.
 
+### Container User
+The container runs as `${UID}:${GID}` (your host user, 1000 by default) rather
+than root. The Folder Organizer checkout is mounted `rw` because the app writes
+tag plans, proposals and exports into it, so without this every saved file would
+land in that project owned by root and become awkward to edit or delete from the
+host. Host sensing still works: it reads through the `/host/*` bind mounts, not
+privileged syscalls, and `CAP_DAC_READ_SEARCH` covers the few root-owned files.
+
+Two consequences worth knowing:
+- The access code at `./data/access-code` is written mode `0600` by the app, so
+  it stays readable only by this uid. If you switch back to root, `chown` that
+  file to root or login will fail with "Could not write the access code".
+- Files created by the *action* features may still land root-owned, since some
+  of those paths talk to host services.
+
 ### Network & PID
-- `network_mode: host` — Direct access to host network stack
+- Bridge networking with `ports: ["4000:4000"]` — port published to the host.
+  Previously `network_mode: host`; switched via the project dashboard
+  (`/ports` → Network → *Switch to bridge*), which added the port mapping.
+  Port 4000 is unchanged, so every URL above still works.
 - `pid: host` — Access to host process namespace (for `--user` systemd)
+
+If you switch back to host networking, drop the `ports:` block. Note that under
+host mode `localhost` inside the container is the host, which any code reaching
+a host-local socket depends on — check `HOST_ROOT`/dbus paths still resolve.
 
 ### Restart Policy
 ```yaml

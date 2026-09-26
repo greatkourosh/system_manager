@@ -147,7 +147,10 @@ Indexes on `ts` and `token_hash`. Parameterized queries only.
 | `CAP_DAC_READ_SEARCH` | Read root-owned files via mounts |
 
 ### Network
-- `network_mode: host` — Direct access to host interfaces, `localhost` = host
+- Bridge networking, port 4000 published (`ports: ["4000:4000"]`) — was
+  `network_mode: host` until switched from the project dashboard. Under host
+  mode `localhost` was the host; under bridge it is the container, so anything
+  reaching a host-local socket must go via the `/host` mounts instead.
 - `pid: host` — Access to host process namespace (for `--user` systemd)
 
 ## Security Model
