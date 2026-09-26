@@ -11,6 +11,7 @@ import unittest
 
 from system_manager import create_app
 from system_manager.organizer import is_available as organizer_available
+from system_manager.organizer import _rewrite_absolute_urls
 
 
 def make_app(auth_enabled=True):
@@ -84,6 +85,37 @@ class UnlockedModuleTests(unittest.TestCase):
     @unittest.skipUnless(organizer_available(), "folder_organizer checkout not present")
     def test_organizer_is_reachable_after_login(self):
         self.assertIn(self.client.get("/organizer/").status_code, (200, 303, 307))
+
+
+class OrganizerUrlRewriteTests(unittest.TestCase):
+    """The organizer's templates hardcode absolute paths, so the proxy rewrites
+    them on the way out. Without this, its fetch() calls hit the host app's
+    root and 404, and the page's buttons silently do nothing."""
+
+    def test_href_is_prefixed(self):
+        self.assertIn(b'href="/organizer/scan"',
+                      _rewrite_absolute_urls(b'<a href="/scan">x</a>'))
+
+    def test_fetch_call_is_prefixed(self):
+        self.assertIn(b"fetch('/organizer/api/skip-rules'",
+                      _rewrite_absolute_urls(b"fetch('/api/skip-rules', {method:'POST'})"))
+
+    def test_local_post_helper_is_prefixed(self):
+        self.assertIn(b"post('/organizer/api/tags/bulk'",
+                      _rewrite_absolute_urls(b"post('/api/tags/bulk', {mode:'m'})"))
+
+    def test_window_open_navigation_is_prefixed(self):
+        self.assertIn(b"open('/organizer/cleanup'",
+                      _rewrite_absolute_urls(b"window.open('/cleanup','_blank')"))
+
+    def test_already_prefixed_url_is_not_doubled(self):
+        self.assertEqual(_rewrite_absolute_urls(b"fetch('/organizer/api/x')"),
+                         b"fetch('/organizer/api/x')")
+
+    def test_absolute_external_url_is_left_alone(self):
+        self.assertEqual(
+            _rewrite_absolute_urls(b'<a href="https://cdn.example/x.css">x</a>'),
+            b'<a href="https://cdn.example/x.css">x</a>')
 
 
 class AuthDisabledTests(unittest.TestCase):

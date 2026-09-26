@@ -107,6 +107,14 @@ def is_available():
 
 
 _HREF_RE = re.compile(rb'(href|action|src)="(/[^"]*)"', re.IGNORECASE)
+# The organizer's templates hardcode fetch('/api/...') and call a local
+# post('/api/...') helper from inline scripts, and open('/cleanup') in a link.
+# Those bypass the href/src rewrite above and would hit the host app's root
+# instead of the mounted module, so rewrite the string literal at those call
+# sites. The module's checkout is never modified, so the proxy has to do this.
+_JS_CALL_RE = re.compile(
+    rb"""(\b(?:fetch|post|open)\(\s*['"])(/(?!organizer(?:/|['"]))[^'"]*)(['"])""",
+    re.IGNORECASE)
 
 
 def _rewrite_absolute_urls(html: bytes) -> bytes:
@@ -115,4 +123,5 @@ def _rewrite_absolute_urls(html: bytes) -> bytes:
     def repl(match):
         prefix, path = match.group(1), match.group(2)
         return rb'%s="%s%s"' % (prefix, PREFIX.encode(), path)
-    return _HREF_RE.sub(repl, html)
+    html = _HREF_RE.sub(repl, html)
+    return _JS_CALL_RE.sub(lambda m: m.group(1) + PREFIX.encode() + m.group(2) + m.group(3), html)
