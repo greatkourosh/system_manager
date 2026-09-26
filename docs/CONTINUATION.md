@@ -467,13 +467,17 @@ running server).
 - `docker compose up -d` after a build does **not** recreate the container, so
   it keeps serving the old image and an edit silently appears to do nothing.
   Use `--force-recreate`.
-- The organizer container's `media_data` **named volume is empty**, so
-  standalone `localhost:5001/videos` renders "0 files" and
-  `tests/test_app.py` fails `summary has totals`, `duplicates json` and the
-  `/api/select` `groups` call. Those three failures reproduce on pristine `HEAD`
-  — missing scan data, not a code bug. The system_manager proxy bind-mount
-  *does* have the data, which is why `/organizer/videos` shows 446 cards while
-  the standalone container shows none.
+- The organizer container's `media_data` **named volume was empty**, so
+  standalone `localhost:5001/videos` rendered "0 files" and `tests/test_app.py`
+  failed `summary has totals`, `duplicates json` and the `/api/select` `groups`
+  call. **Fixed 2026-09-26** — the three named volumes are replaced with bind
+  mounts to `./data`, `./commands_to_run` and `./logs`, and the service gained
+  `user: "${UID:-1000}:${GID:-1000}"`. `tests/test_app.py` is now 73 passed /
+  0 failed, and standalone `:5001` matches the proxy. The `user:` line is
+  load-bearing, not cosmetic: the image's `appuser` is uid 10001 and gets
+  EACCES writing a 1000-owned `data/`, which would break the
+  selection-state, tag-plan and proposal writes. The proxy was never affected —
+  it imports `folder_organizer/app.py` in-process and reads the real host data.
 
 ### Requested: auto-download subtitles for series/movies missing them
 
