@@ -462,6 +462,19 @@ and untracked. Suite is 35 passed + 6 subtests
 (`python3 -m pytest tests/ -q --ignore=tests/test_app.py`, which needs no
 running server).
 
+**Two container notes, both of which cost time on 2026-09-26:**
+
+- `docker compose up -d` after a build does **not** recreate the container, so
+  it keeps serving the old image and an edit silently appears to do nothing.
+  Use `--force-recreate`.
+- The organizer container's `media_data` **named volume is empty**, so
+  standalone `localhost:5001/videos` renders "0 files" and
+  `tests/test_app.py` fails `summary has totals`, `duplicates json` and the
+  `/api/select` `groups` call. Those three failures reproduce on pristine `HEAD`
+  — missing scan data, not a code bug. The system_manager proxy bind-mount
+  *does* have the data, which is why `/organizer/videos` shows 446 cards while
+  the standalone container shows none.
+
 ### Requested: auto-download subtitles for series/movies missing them
 
 **Status 2026-09-26: not started — blocked on the `G:` path translation.**
