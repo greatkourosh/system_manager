@@ -55,10 +55,9 @@ auth (401 before login, session cookie after, code rotates on login).
    refuses root (`Transport endpoint is not connected`). Same command works
    as uid 1000, or over systemd's `--machine=<user>@.host` proxy as root.
 
-Fixes 1–2 are container config and are now documented (not yet applied — the
-AppArmor change loosens a security boundary and was left for an explicit
-decision). Fix 3 needs a code change in `auth.py`. **This is the top open
-item**; see "Next Steps".
+Fixes 1–2 were container config and are **now applied**; fix 3 was resolved in
+`auth.py`, but by a different cause than first diagnosed (see Milestone 8). All
+three are verified against the live bus.
 
 ### 2026-09-26 — Module Loading & Session Fixes (Milestone 7)
 
@@ -104,6 +103,58 @@ and will *always* fail `os.path.exists()` on this host — the drive is really a
 scan; 424/446 cards resolve once `G:` is stripped and `\` swapped for `/`. Do
 not conclude the library is absent, and do not "fix" the scanner, before trying
 the translation. (Details in the subtitle task under Next Steps.)
+
+### 2026-09-26 — Action Features Fixed Against a Live Bus (Milestone 8)
+
+Closes the three bugs Milestone 6 found, each re-probed inside the running
+container before and after. The app is `COPY`'d into the image, so **a code
+change needs `docker compose build` + `up -d`** — editing the file on the host
+silently changes nothing, which is what made the first attempt look unfixed.
+
+1. **D-Bus path pointed into a prefix that isn't mounted.** The socket is
+   mounted at `/var/run/dbus`, and `/var/run` is a symlink to `/run` inside the
+   image, so the real path is `/run/dbus/system_bus_socket`. The old
+   `unix:path=/host/run/dbus/…` resolved to nothing — only `/host/{etc,proc,sys}`
+   exist under that prefix, there is no `/host/run`.
+2. **AppArmor's `docker-default` denies the system bus.** `nmcli` failed with
+   `AccessDenied: An AppArmor policy prevents this sender…` even with a correct
+   path. Now `security_opt: [apparmor=unconfined]`. This does **loosen a
+   security boundary** — it was left for an explicit decision earlier and is
+   now applied, so it needs a deliberate re-look: removing the line puts NM
+   actions back to failing closed.
+3. **`systemctl --user` failed — but not for the documented reason.** Milestone 6
+   blamed running as root; the container has run as `${UID}:${GID}` since
+   `838aa48`, so that was stale. The real cause was narrower: `command_output`
+   passed `env={"PATH", "LC_ALL"}`, and the stripped environment removed
+   `XDG_RUNTIME_DIR`, which is how `systemctl` locates the per-user bus. Now one
+   `_subprocess_env()` helper builds the env for all five systemctl/nmcli call
+   sites, adding `XDG_RUNTIME_DIR`, `DBUS_SESSION_BUS_ADDRESS` and
+   `DBUS_SYSTEM_BUS_ADDRESS` only when the corresponding socket actually exists
+   — a wrong address produces the same "broken tool" error as a missing one.
+
+**Verified live** (container rebuilt and recreated, logged in, real endpoints):
+`/api/services` returns `"state":"observed"` with **45 real user services**,
+`/api/profiles` returns the host's actual NM connections, and the guardrail is
+intact — `dbus`, `polkit`, `systemd-udevd` and `network-manager` are all still
+refused as critical while `cups.service` issues an approval token. 72 tests pass
+(+6 `SubprocessEnvTests`).
+
+**Still broken, and not fixable from here: NM checkpoints.** `nm_activate` refuses
+to run without one, so profile activation has no rollback safety net. Two
+independent causes, both verified on the host — this is not a container problem:
+- Neither nmcli implements the `con checkpoint` verb. The container ships 1.52.1
+  and the host has 1.46.0; `nmcli con --help` lists no `checkpoint` in either.
+- The D-Bus `CheckpointCreate` call *is* available and *is* refused: polkit's
+  `org.freedesktop.NetworkManager.checkpoint-rollback` defaults to
+  `auth_admin_keep`, i.e. an interactive admin password prompt, and
+  `/usr/share/polkit-1/rules.d/org.freedesktop.NetworkManager.rules` grants only
+  `settings.modify.system`. Reproduced outside the container as a plain user.
+
+Making this work means either a polkit rule granting checkpoint to an active
+local `sudo` session, or dropping the checkpoint requirement and accepting
+activation without rollback. Both are security-relevant decisions, so neither
+was made here. Until then the endpoint fails closed, which is the safe side.
+
 
 ---
 
@@ -273,7 +324,7 @@ written; `scripts/` does not exist in this project.
 
 Clean through `2252b33` ("docs: scope the requested subtitle auto-fetch task"). Milestone 5 completed in `d1ac423`. The 2026-09-26 verification pass (Milestone 6) was documentation-only. A later pass on the same day fixed four container/host bugs — see the Milestone 7 entry. 72 tests + 40 subtests pass (re-verified 2026-09-26, ~4s).
 
-> **Three container bugs were documented as unfixed** (see the Milestone 6 entry): the D-Bus path, the AppArmor denial, and the root/`systemctl --user` mismatch. All three now have fixes in the working tree — `docker-compose.yml` corrects `DBUS_SYSTEM_BUS_ADDRESS` and adds `security_opt: [apparmor=unconfined]`, and `auth.py` gained a per-call `_subprocess_env()`. `SubprocessEnvTests` in `tests/test_flask_app.py` covers the env-building logic against stubs. **None of it is verified against a live bus**, and the AppArmor line is a deliberate security-boundary loosening — confirm both before treating actions as working.
+> **The three container bugs from Milestone 6 are fixed and verified against a live bus** — see Milestone 8. `docker-compose.yml` corrects `DBUS_SYSTEM_BUS_ADDRESS` and adds `security_opt: [apparmor=unconfined]`; `auth.py` has a per-call `_subprocess_env()`. `/api/services` and `/api/profiles` both return `observed` with real host data. Two caveats worth keeping: the AppArmor line **is** a deliberate security-boundary loosening, and the `systemctl --user` fix turned out to be the stripped subprocess env, not the uid. **NM checkpoint rollback remains unavailable** (upstream nmcli + polkit limits, reproducible on the host), so `nm_activate` still fails closed.
 
 > `core.filemode` is set to `false` on this clone, so the older repo-wide `100644 → 100755` mode flips no longer appear in diffs.
 

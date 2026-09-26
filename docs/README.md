@@ -19,12 +19,13 @@ python3 run.py
 The access code **rotates on every successful login**, so re-read the file
 each time you need to log in. `/health` is the only unauthenticated endpoint.
 
-> **Actions don't work in the container yet.** Service restart and
-> NetworkManager activation return `{"state": "unavailable"}` on a stock
-> `compose up` — three separate bugs (wrong D-Bus path, AppArmor denying
-> D-Bus, and `systemctl --user` being called as root). Everything else —
-> observation, connectivity, audit, inventory — works. The two config fixes
-> and the full triage are in [DEPLOYMENT.md](DEPLOYMENT.md#networkmanager-actions-fail).
+> **Actions work in the container as of 2026-09-26.** Service listing and
+> NetworkManager profile listing return `{"state": "observed"}` on a stock
+> `compose up` — all three original bugs are fixed (D-Bus path, AppArmor
+> denial, and a stripped subprocess env that hid `XDG_RUNTIME_DIR` from
+> `systemctl --user`). One gap remains: NM checkpoint rollback, so
+> `nm_activate` still fails closed. Full triage in
+> [DEPLOYMENT.md](DEPLOYMENT.md#networkmanager-actions-fail).
 
 ## Features
 

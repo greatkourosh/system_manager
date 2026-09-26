@@ -156,11 +156,10 @@ Critical services (journald, logind, resolved, udevd, dbus, polkit, network-mana
 ### `GET /api/profiles`
 **Auth required.** List NetworkManager connection profiles.
 
-> **Unavailable in the container (as of 2026-09-26)** — blocked by AppArmor's
-> default D-Bus denial and a wrong `DBUS_SYSTEM_BUS_ADDRESS` in
-> `docker-compose.yml`. Needs `security_opt: [apparmor=unconfined]` and
-> `DBUS_SYSTEM_BUS_ADDRESS=unix:path=/run/dbus/system_bus_socket`; both fixes
-> verified together against a live container. See DEPLOYMENT.md.
+> **Available as of 2026-09-26.** Required `security_opt: [apparmor=unconfined]`
+> and `DBUS_SYSTEM_BUS_ADDRESS=unix:path=/run/dbus/system_bus_socket`; both are
+> now in `docker-compose.yml` and verified against a live container. See
+> DEPLOYMENT.md.
 
 **Response:**
 ```json
@@ -190,7 +189,7 @@ Types: wireless, vpn, ethernet, bridge, bond, team, vlan.
 |------|------------|-------------|
 | `service_restart` | `{name: "foo.service"}` | Restart user service |
 | `service_start` | `{name: "foo.service"}` | Start user service |
-| `nm_activate` | `{name: "ProfileName"}` | Activate NM profile |
+| `nm_activate` | `{name: "ProfileName"}` | Activate NM profile — **currently always refused**, see note below |
 
 **Response:**
 ```json
@@ -221,6 +220,17 @@ Token is single-use, bound to session + exact parameters, expires in 5 minutes.
 }
 ```
 Audit record written automatically. On `nm_activate` failure, NM rollback attempted.
+
+> **`nm_activate` fails closed (2026-09-26).** It requires an NM checkpoint so a
+> failed activation can be rolled back, and no checkpoint can be made here: the
+> `con checkpoint` nmcli verb exists in neither the container's nmcli 1.52 nor the
+> host's 1.46, and the D-Bus `CheckpointCreate` call is refused by polkit
+> (`checkpoint-rollback` defaults to `auth_admin_keep`, and the shipped NM rules
+> grant only `settings.modify.system`). Reproduced on the host, so it is not a
+> container issue. The endpoint returns
+> `{"error": "NetworkManager checkpoint not available; safe rollback cannot be guaranteed."}`
+> rather than activating a profile with no way back. Unblocking it needs a polkit
+> rule or dropping the checkpoint requirement — a security decision, not a bug fix.
 
 ### `GET /api/audit`
 **Auth required.** Recent action log (max 50).

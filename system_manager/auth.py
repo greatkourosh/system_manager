@@ -322,10 +322,19 @@ def nm_profiles():
 
 
 def nm_checkpoint():
+    """Create a NetworkManager checkpoint so activation can be rolled back.
+
+    Neither the shipped nmcli (1.52) nor the host's (1.46) implements the
+    ``con checkpoint`` verb, and the Checkpoint D-Bus call is refused by polkit
+    (default auth_admin_keep -- it wants an interactive admin prompt). So
+    there is currently no way to make a checkpoint from an unprivileged
+    session, and activation proceeds with no rollback safety net.
+    """
     checkpoint = command_output(["/usr/bin/nmcli", "con", "checkpoint"], timeout=5)
     if checkpoint is not None and checkpoint.strip():
         return observed(checkpoint.strip())
-    return unavailable("Checkpoint not supported or failed.")
+    return unavailable(
+        "NetworkManager checkpoint not available; safe rollback cannot be guaranteed.")
 
 
 def nm_rollback(checkpoint):

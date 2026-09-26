@@ -19,15 +19,13 @@ docker compose exec system-manager cat /data/access-code
 The access code **rotates on every successful login** — re-read the file
 whenever you need to log in again.
 
-> **The action features do not work on a stock `compose up`.** Service restart
-> and NetworkManager profile activation return
-> `{"state": "unavailable"}`; the dashboard's service and profile panels show
-> "Could not list user services." / "Could not list NetworkManager profiles."
-> Read-only observation (CPU, memory, disk, network, hardware, audit log,
-> inventory) is unaffected. The cause is three separate bugs — a wrong
-> D-Bus path in `docker-compose.yml`, AppArmor's default profile denying
-> D-Bus, and `auth.py` calling `systemctl --user` as root. The first two are
-> documented and fixable in this file; the third is an open code change. See
+> **The action features work on a stock `compose up` as of 2026-09-26.** Service
+> restart and NetworkManager profile listing return `{"state": "observed"}` with
+> real host data. Two prerequisites ship in `docker-compose.yml` already — the
+> correct D-Bus socket path and `security_opt: [apparmor=unconfined]`; see the
+> AppArmor section below, since removing that line breaks profile listing again.
+> One thing still does **not** work: NM checkpoint rollback, which needs a
+> newer nmcli or a polkit rule, so `nm_activate` fails closed. See
 > CONTINUATION.md for the full write-up.
 
 Authentication is **on by default**. A clone with no `.env` starts locked; the
@@ -317,8 +315,10 @@ docker exec system-manager systemctl is-active NetworkManager
 docker exec system-manager /usr/bin/nmcli con checkpoint
 ```
 
-This is the single most common failure on a stock deployment, and it has
-three independent causes. Diagnose them in order — each one masks the next.
+Profile *listing* and service listing both work on a current `compose up`. The
+three causes below were the reasons they did not, and are kept because they
+recur whenever a host is set up differently, or when a `security_opt` line gets
+dropped. Each one masks the next, so diagnose in order.
 
 **1. D-Bus path points at a directory that does not exist.**
 ```bash
@@ -345,21 +345,40 @@ netplan-eno1:802-3-ethernet:eno1
 br-11bc256a9deb:bridge:br-11bc256a9deb
 ```
 
-**3. The user bus rejects root.** Affects services, not NetworkManager. Even
-with the environment set, connecting as root fails while the same call as the
-host uid succeeds:
+**3. `systemctl --user` cannot find the user bus.** Affects services, not
+NetworkManager. The symptom names the fix but not the real cause:
 ```bash
-# As root: "Transport endpoint is not connected"
-docker exec system-manager busctl --address=unix:path=/run/user/1000/bus list
-# The same container started with --user 1000:1000 works.
+docker exec system-manager systemctl --user list-units --type=service
+# Failed to connect to user scope bus via local transport:
+# $DBUS_SESSION_BUS_ADDRESS and $XDG_RUNTIME_DIR not defined
 ```
-`system_manager/auth.py` calls `systemctl --user` directly, so user services
-stay unavailable until it either runs as the host uid or switches to systemd's
-`--machine=<user>@.host` proxy over the system bus (verified working as root):
+It is **not** a uid problem — the container runs as your host uid already (see
+`user:` in `docker-compose.yml`). `systemctl` locates the per-user bus through
+`XDG_RUNTIME_DIR`, and `auth.py` was passing a minimal `env={"PATH", "LC_ALL"}`
+to every subprocess, which stripped that variable out. `auth.py:_subprocess_env()`
+now builds the environment per call and adds `XDG_RUNTIME_DIR` and
+`DBUS_SESSION_BUS_ADDRESS` when `/run/user/<uid>/bus` exists. Verify:
 ```bash
-docker exec system-manager \
-  systemctl --machine=<user>@.host --user list-units --type=service
+curl -s -b "$COOKIES" http://localhost:4000/api/services | head -c 120
+# {"state":"observed","value":[{"active":"active","description":"...
 ```
+
+> If a fix in `system_manager/` appears to do nothing, remember the app is
+> `COPY`'d into the image rather than bind-mounted — run
+> `docker compose build && docker compose up -d` before testing.
+
+### NetworkManager activation refused
+```bash
+# "NetworkManager checkpoint not available; safe rollback cannot be guaranteed."
+```
+Not fixable from the container, and not an AppArmor or D-Bus problem. Neither
+nmcli implements `con checkpoint` (container ships 1.52.1, host has 1.46.0), and
+polkit refuses the `CheckpointCreate` D-Bus call because
+`org.freedesktop.NetworkManager.checkpoint-rollback` defaults to
+`auth_admin_keep` while the shipped NM rules grant only
+`settings.modify.system`. Reproduce on the host to confirm it is not a container
+issue. Unblocking needs a polkit rule or dropping the checkpoint requirement —
+both are security decisions, so `nm_activate` fails closed meanwhile.
 
 ### Filesystem reading unavailable
 ```bash
