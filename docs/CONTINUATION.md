@@ -90,7 +90,7 @@ container:
 
 Verified after the fixes: all 12 pages return 200 while authenticated, a real
 organizer write lands `kourosh`-owned, two concurrent sessions both stay live,
-and host sensing still reports the real machine. 66 tests pass.
+and host sensing still reports the real machine. 66 tests pass at that point.
 
 **Diagnostic note:** "module link does nothing" is ambiguous between a missing
 mount and an expired session, and the dashboard renders both the same way. A
@@ -257,7 +257,7 @@ docker compose exec system-manager cat /data/access-code
 ### Tests
 ```bash
 python3 -m pytest -q
-# 66 tests + 40 subtests, ~4s
+# 72 tests + 40 subtests, ~4s
 ```
 
 ---
@@ -337,16 +337,16 @@ Clean through `2252b33` ("docs: scope the requested subtitle auto-fetch task"). 
 - ~~Enforce login redirect / lock the whole app when auth is on~~ — done; see `tests/test_lock.py`
 - ~~Commit the Milestone 5 remainder~~ (connectivity port + lock) — done in `d1ac423`
 - **Fix the action features in the container** — highest priority, and all three
-  causes now have fixes in the working tree: `docker-compose.yml` corrects
-  `DBUS_SYSTEM_BUS_ADDRESS` and adds `security_opt`, `auth.py` gained
-  `_subprocess_env()`, and `SubprocessEnvTests` covers the env logic. Remaining
-  work:
+  causes are fixed and now verified against the live stack.
   1. ~~`docker-compose.yml`: `DBUS_SYSTEM_BUS_ADDRESS` → `unix:path=/run/dbus/system_bus_socket`~~ — done. `_subprocess_env()` also sets both addresses per call, so the variable is belt-and-braces rather than load-bearing.
   2. ~~`docker-compose.yml`: add `security_opt: [apparmor=unconfined]`~~ — done. Still a deliberate security-boundary loosening to confirm explicitly before shipping.
-  3. **Verify against a running container.** `SubprocessEnvTests` stubs
-     `os.path.exists` / `os.path.isdir`, so it proves the env is *built* correctly
-     but not that systemctl or nmcli accept it. Run the `docker exec` block in
-     the vault note against a live stack before closing this out.
+  3. ~~Verify against a running container.~~ — done 2026-09-26. `SubprocessEnvTests`
+     stubs `os.path.exists` / `os.path.isdir`, so it only proves the env is *built*
+     correctly; the live check was separate. Logged in and read `/api/services`
+     and `/api/profiles`, both returning `{"state":"observed", ...}` with real host
+     data, plus `/health` → `{"status":"ok"}`. `nm_activate` is the one action
+     still refused — see the checkpoint note above; that is a polkit decision,
+     not an environment problem.
 - Decide: retire `server.py`'s standalone panel now that Flask covers all of it, or keep it as a thin wrapper over `system_manager`
 - Package & update management (#2) is the highest-value next feature
 

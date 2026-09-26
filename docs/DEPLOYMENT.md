@@ -130,9 +130,16 @@ restart: unless-stopped
 ```
 
 ### Health Check
+
+The image is `python:3.14-slim` plus iproute2/net-tools/network-manager/systemd,
+so **`curl` and `jq` are not installed inside the container**. Check health with
+Python, which is present:
+
 ```bash
-docker exec system-manager curl -sf http://localhost:4000/health | jq -e '.status == "ok"'
+docker exec system-manager python3 -c "import urllib.request,sys,json; d=json.load(urllib.request.urlopen('http://localhost:4000/health')); sys.exit(0 if d['status']=='ok' else 1)"
 ```
+
+It exits 0 when healthy, 1 otherwise.
 
 `/health` is the only unauthenticated JSON endpoint. Use `/api/status` instead
 only when auth is disabled — with auth on it returns `401`, so probing it is
