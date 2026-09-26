@@ -146,6 +146,15 @@ Indexes on `ts` and `token_hash`. Parameterized queries only.
 | `NET_ADMIN` | `nmcli` operations |
 | `CAP_DAC_READ_SEARCH` | Read root-owned files via mounts |
 
+### Container User
+Runs as `${UID}:${GID}` (the host user, 1000 by default) rather than root. The
+Folder Organizer checkout is mounted `rw` because the app writes tag plans,
+proposals and exports there; as root those files would land in that project
+owned by root. Host sensing is unaffected — it reads through the `/host/*`
+mounts rather than privileged syscalls, and `CAP_DAC_READ_SEARCH` still covers
+the root-owned files. Side effect: `systemctl --user` now fails on a missing
+session bus rather than on being root; see the actions note in CONTINUATION.md.
+
 ### Network
 - Bridge networking, port 4000 published (`ports: ["4000:4000"]`) — was
   `network_mode: host` until switched from the project dashboard. Under host
@@ -206,7 +215,7 @@ index.html (served by /)
 | Contract | Fixtures + mocks | Malformed input, timeouts, permission errors, unavailable sensors |
 | Smoke | Manual / browser | Full UI flow, container mounts, real system data |
 
-Run: `python3 -m pytest -q` (59 tests + 40 subtests, ~4s)
+Run: `python3 -m pytest -q` (66 tests + 40 subtests, ~4s)
 Test modules: `test_server.py` (24 — collectors/cache/HTTP on the standalone panel), `test_connectivity.py` (11 — config, scan cadence, endpoint validation, API auth), `test_flask_app.py` (10 — Flask auth + approval flow), `test_lock.py` (9 — module blueprint gating), `test_inventory.py` (5 — store + API).
 
 ## Extensibility Points

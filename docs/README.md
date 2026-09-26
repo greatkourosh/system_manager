@@ -48,7 +48,7 @@ each time you need to log in. `/health` is the only unauthenticated endpoint.
 - **Templates/static** under `templates/`, `static/` (Jinja, vanilla JS/CSS)
 - **Standalone panel** (`server.py`, stdlib-only, `--port 8765/4000`) superseded by the Flask app; kept until its HTTP layer is retired
 - **Containerized** with host mounts for `/proc`, `/sys`, `/etc`, dbus
-- **59 unit/integration tests** (`tests/test_server.py`, `tests/test_flask_app.py`, `tests/test_connectivity.py`, `tests/test_inventory.py`, `tests/test_lock.py`)
+- **66 unit/integration tests** (`tests/test_server.py`, `tests/test_flask_app.py`, `tests/test_connectivity.py`, `tests/test_inventory.py`, `tests/test_lock.py`)
 
 ## Documentation
 

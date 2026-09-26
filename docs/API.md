@@ -27,6 +27,10 @@ Host: localhost:4000             # Required for all requests
 2. **Use**: Include cookie in subsequent requests
 3. **Logout**: `POST /api/logout` → invalidates session, clears cookie
 
+Sessions are additive: logging in from a second tab issues a new token and
+leaves existing ones valid, so one browser can hold several live sessions at
+once. Rotating the access code does not invalidate a session you already hold.
+
 ### Access Code
 - Written to the file at `SYSTEM_MANAGER_AUTH_TOKEN_PATH` (600 perms) when set, with the same behavior as the standalone panel
 - Rotates after each successful login
