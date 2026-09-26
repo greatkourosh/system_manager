@@ -11,11 +11,19 @@ services:
       - /run/user:/run/user:ro
       - /var/run/dbus:/var/run/dbus:ro
       - /sys/class/dmi:/sys/class/dmi:ro
-    env_file:
-      - .env
+      # Holds the access code and the audit/inventory databases. Override this
+      # line to store them somewhere else; the container needs it to be writable
+      # or no one can log in.
+      - ./data:/data
     environment:
+      # Auth is on unless a local .env explicitly opts out. Compose reads .env
+      # from this directory for interpolation, so dropping DISABLE_AUTH=1 in
+      # there still works, but a missing or untracked .env can never silently
+      # expose the dashboard. Nothing is contacted without a session.
+      - DISABLE_AUTH=${DISABLE_AUTH:-0}
       - HOST_ROOT=/host
       - DBUS_SYSTEM_BUS_ADDRESS=unix:path=/host/run/dbus/system_bus_socket
+      - SYSTEM_MANAGER_AUTH_TOKEN_PATH=${SYSTEM_MANAGER_AUTH_TOKEN_PATH:-/data/access-code}
     cap_add:
       - SYS_ADMIN
       - SYS_RESOURCE

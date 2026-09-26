@@ -174,7 +174,7 @@ index.html (served by /)
 | Contract | Fixtures + mocks | Malformed input, timeouts, permission errors, unavailable sensors |
 | Smoke | Manual / browser | Full UI flow, container mounts, real system data |
 
-Run: `python3 -m unittest discover -s tests -v` (57 tests, ~4s)
+Run: `python3 -m unittest discover -s tests -v` (59 tests, ~4s)
 Test modules: `test_server.py` (collectors/cache/HTTP on the standalone panel), `test_flask_app.py` (Flask auth + approval flow), `test_inventory.py` (store + API).
 
 ## Extensibility Points

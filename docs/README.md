@@ -5,9 +5,11 @@ Local system management dashboard for Linux. Runs in a container with host acces
 ## Quick Start
 
 ```bash
-# Container (recommended)
+# Container (recommended) — auth is on by default
 docker compose up -d --build
 # Open http://localhost:4000/  (gunicorn -> run.py -> Flask app)
+# Unlock with the access code:
+#   docker compose exec system-manager cat /data/access-code
 
 # Local development (Flask)
 python3 run.py
@@ -36,7 +38,7 @@ python3 run.py
 - **Templates/static** under `templates/`, `static/` (Jinja, vanilla JS/CSS)
 - **Standalone panel** (`server.py`, stdlib-only, `--port 8765/4000`) superseded by the Flask app; kept until its HTTP layer is retired
 - **Containerized** with host mounts for `/proc`, `/sys`, `/etc`, dbus
-- **57 unit/integration tests** (`tests/test_server.py`, `tests/test_flask_app.py`, `tests/test_connectivity.py`, `tests/test_inventory.py`, `tests/test_lock.py`)
+- **59 unit/integration tests** (`tests/test_server.py`, `tests/test_flask_app.py`, `tests/test_connectivity.py`, `tests/test_inventory.py`, `tests/test_lock.py`)
 
 ## Documentation
 

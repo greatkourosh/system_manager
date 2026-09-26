@@ -11,17 +11,35 @@
 ```bash
 cd /media/kourosh/DEVNVME/projects/system_manager
 docker compose up -d --build
-# Open http://localhost:4000/
+# Open http://localhost:4000/ and unlock with the access code.
+# The container runs as root, so the file is root-owned: read it with
+docker compose exec system-manager cat /data/access-code
 ```
 
+Authentication is **on by default**. A clone with no `.env` starts locked; the
+access code is written to `./data/access-code` on the host (and regenerated on
+each successful login, so a leaked file alone is not enough). Because the
+container runs as root the file is mode `0600` and root-owned — read it with
+`docker compose exec` or `sudo cat`, and keep it out of version control.
+
 ### Configuration
-Create `.env` (optional):
+`.env` is optional and untracked — copy `.env.example` to create one. It is
+only read for Compose variable interpolation, so it must live beside
+`docker-compose.yml`:
+
 ```bash
 # .env
-DISABLE_AUTH=1          # Set to 0 to enable access code (production)
+DISABLE_AUTH=1          # Opt out of the access code (development only)
+# SYSTEM_MANAGER_AUTH_TOKEN_PATH=/data/access-code   # Already set in docker-compose.yml
 # HOST_ROOT=/host       # Already set in docker-compose.yml
-# SYSTEM_MANAGER_AUTH_TOKEN_PATH=/data/access-code   # when auth enabled
 ```
+
+`DISABLE_AUTH=1` is for local development only. The container runs on
+`network_mode: host` with `SYS_ADMIN`, `NET_ADMIN` and a read-only `/etc`
+mount, so with auth disabled every `/api/*` endpoint — including
+`POST /api/execute`, which runs `systemctl` and NetworkManager commands — is
+reachable by anything that can reach port 4000. Leave it off unless you are
+running on an isolated network.
 
 ### Volumes
 | Host Path | Container Path | Mode | Required |
@@ -32,6 +50,7 @@ DISABLE_AUTH=1          # Set to 0 to enable access code (production)
 | `/run/user` | `/run/user` | ro | Yes (user systemd) |
 | `/var/run/dbus` | `/var/run/dbus` | ro | Yes (NM, systemd) |
 | `/sys/class/dmi` | `/sys/class/dmi` | ro | Yes (hardware IDs) |
+| `./data` | `/data` | rw | Yes (access code, audit + inventory DBs) |
 
 ### Capabilities
 | Capability | Purpose |
@@ -52,8 +71,12 @@ restart: unless-stopped
 
 ### Health Check
 ```bash
-docker exec system-manager curl -sf http://localhost:4000/api/status | jq -e '.state == "observed"'
+docker exec system-manager curl -sf http://localhost:4000/health | jq -e '.status == "ok"'
 ```
+
+`/health` is the only unauthenticated JSON endpoint. Use `/api/status` instead
+only when auth is disabled — with auth on it returns `401`, so probing it is
+not a valid liveness check.
 
 ---
 

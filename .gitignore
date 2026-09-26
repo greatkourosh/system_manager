@@ -23,6 +23,10 @@ ENV/
 *.db-shm
 *.db-wal
 
+# Local deployment config (may hold DISABLE_AUTH and token paths).
+# .env.example is the tracked template.
+.env
+
 *.log
 *.tmp
 .DS_Store

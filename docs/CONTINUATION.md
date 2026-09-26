@@ -135,7 +135,7 @@ docker compose up -d --build
 ### Tests
 ```bash
 python3 -m unittest discover -s tests -v
-# 57 tests, ~4s
+# 59 tests, ~4s
 ```
 
 ---

@@ -159,6 +159,7 @@ class Security:
         self.lock = threading.Lock()
         self.credential_path = None
         self.credential = None
+        self.credential_error = None
         self.sessions = {}
         self.failed_logins = 0
         self.login_blocked_until = 0
@@ -174,9 +175,13 @@ class Security:
                 output.write(credential + "\n")
             self.credential_path = path
             self.credential = credential
-        except OSError:
+            self.credential_error = None
+        except OSError as error:
+            # Without a code no one can log in, so say why instead of failing
+            # every attempt as "incorrect access code".
             self.credential = None
             self.credential_path = None
+            self.credential_error = f"Could not write the access code to {path}: {error.strerror or error}."
 
     def token_from(self, request):
         return request.cookies.get(self.AUTH_TOKEN, "") or ""
@@ -370,6 +375,8 @@ def auth_blueprint():
             return jsonify({"ok": True})
         security = current_app.config["SECURITY"]
         body = request.get_json(silent=True) or {}
+        if security.credential_error:
+            return jsonify({"error": security.credential_error}), 500
         try:
             result = security.login(body.get("code"))
         except PermissionError as error:

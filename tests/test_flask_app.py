@@ -52,6 +52,23 @@ class AuthApiTests(unittest.TestCase):
         self.assertEqual(client.get("/api/status").status_code, 200)
         self.assertTrue(app.config["DISABLE_AUTH"] is not None and app.config["DISABLE_AUTH"])
 
+    def test_unwritable_token_path_reports_why_instead_of_a_bad_code(self):
+        # A token path the process cannot write leaves no way in, so the login
+        # endpoint must name the cause rather than blaming the submitted code.
+        security = auth.Security()
+        with tempfile.TemporaryDirectory() as directory:
+            blocked = os.path.join(directory, "missing", "access-code")
+            security.issue_credential(blocked)
+        self.assertIsNone(security.credential)
+        self.assertIn(blocked, security.credential_error)
+
+    def test_login_reports_an_unissued_credential(self):
+        self.security.credential = None
+        self.security.credential_error = "Could not write the access code to /data/access-code."
+        response = self.client.post("/api/login", json={"code": "correct-code"})
+        self.assertEqual(response.status_code, 500)
+        self.assertIn("access code", response.get_json()["error"])
+
 
 class ApprovalFlowTests(unittest.TestCase):
     def setUp(self):
