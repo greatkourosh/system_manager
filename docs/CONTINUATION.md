@@ -415,6 +415,32 @@ seasons, sub_count, title, total_bytes, video_count, year`.
    descending. Default to the current file order so the page looks unchanged
    until a sort is picked.
 
+**Status 2026-09-26: shipped.** Items 1–5 and the "Recommended" badge are
+implemented in the `folder_organizer` checkout (uncommitted — see below), with
+`tests/test_videos.py` (16 tests). Verified through the live container on
+`/organizer/videos`: all five sorts, every filter, and a paging sweep that
+returns 446 unique cards with no card repeated or dropped.
+
+Two things the implementation had to get right, both worth not re-breaking:
+
+- **Jinja `c.pop` is not the `pop` field.** Dot access on a dict resolves
+  built-ins first, so `{{ c.pop }}` rendered
+  `<built-in method pop of dict object at 0x…>` into every badge. It has to be
+  `{{ c['pop'] }}`. `test_recommended_badge_shows_numbers` asserts the string
+  `built-in method` never appears in the page.
+- **Blanks must be partitioned out, not carried in the sort key.** `year`,
+  `rating` and `pop` are strings and are `''`/`None` on unparsed cards, so a
+  `(is_blank, value)` key tuple under `reverse=True` inverts the blank flag
+  too and floats unknowns back to the top. `_sort_cards` splits known from
+  blank first, then sorts.
+
+**Decade filtering hides every serial.** All 124 serials have `year: None` —
+the scanner only extracts a year from the `YYYY - Title` form that movie
+folders use, and serial names never carry one. So `?decade=2010&kind=serial`
+is legitimately 0 results. The unknown-year option is labelled "No year in
+name (all serials)" and the note under the filter bar says so, rather than
+leaving a user to conclude the filter is broken.
+
 **Rotten Tomatoes is not available.** There is no RT field in
 `video_library.json` and nothing in the codebase fetches one; the `tomato` grep
 hits in `data/*.json` are folder names ("Tomatons"). `tmdb_client.py` already
@@ -427,7 +453,21 @@ existing poster-cache pattern (`tmdb_client.py` → `data/posters_state.json`)
 rather than calling out to the network on page render. If neither is wanted,
 ship 1–5 and drop the RT idea — the page is still much more useful.
 
+**Uncommitted, in the `folder_organizer` checkout.** The work above is on disk
+but not committed. `app.py` and `templates/videos.html` also carry *unrelated*
+in-progress edits (programs pagination and a CSV export endpoint) that were
+already in the working tree before this work started, so `app.py`'s diff mixes
+both. Split or stage by hunk before committing; `tests/test_videos.py` is new
+and untracked. Suite is 35 passed + 6 subtests
+(`python3 -m pytest tests/ -q --ignore=tests/test_app.py`, which needs no
+running server).
+
 ### Requested: auto-download subtitles for series/movies missing them
+
+**Status 2026-09-26: not started — blocked on the `G:` path translation.**
+A per-card fetch has to resolve the media file on disk, and 22 of 446 cards
+(including most of the serials) are unreachable until the `G:\` → host-path
+translation described above is done. Deliberately left alone this pass.
 
 For every card on `/organizer/videos` that lacks a subtitle, add an option to
 auto-fetch it. **A fetcher already exists and is not wired to the page** —
@@ -504,6 +544,15 @@ badges at `videos.html:59-61` already show FA/EN state per card, so the button
 can sit right there and only appear when a badge is missing.
 
 ### Requested: series-state badges + a "Recommended" badge
+
+**Split outcome as of 2026-09-26:**
+- **Task B (Recommended badge) — shipped.** Implemented with the filter work
+  above: `rating >= 8.0 and pop >= 85`, 91 of 446 cards, labelled in the UI as a
+  folder-name heuristic rather than a curated score.
+- **Task A (season-state badges) — not started, blocked on the `G:` path
+  translation.** It has to read the serial directory listing, and 124 serial
+  folders are unreachable until the translation is done. A name-derived badge
+  would be wrong for 43 of them, which is the whole point of the task.
 
 Same placement as the task above — a change to the **`folder_organizer`**
 checkout (`templates/videos.html` for the markup, `app.py:/videos` if a helper
