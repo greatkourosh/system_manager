@@ -4,7 +4,7 @@
 Local system management dashboard for Linux (Ubuntu 24.04+), running in a container with host access. Provides read-only system observation, opt-in connectivity diagnostics, and approved actions with audit logging.
 
 **App:** Flask app (`system_manager/`) hosting feature modules as blueprints, served by gunicorn in the container and `run.py` in dev.
-**Standalone panel:** `server.py` (stdlib-only, ~830 lines) is now fully superseded by the Flask app — connectivity, actions, and audit all live in `system_manager/`, which imports `server.py` for its collectors. It is kept only until its HTTP layer is retired.
+**Collector library:** `server.py` (stdlib-only, 534 lines) is a library, not an app — connectivity, actions and audit all live in `system_manager/`, which imports its collectors. Its standalone HTTP panel was retired 2026-09-26.
 
 ---
 
@@ -176,7 +176,7 @@ run.py ── create_app() ── Flask
 ├── templates/  (base.html, index.html, modules.html)  Jinja
 └── static/     (app.js, app.css, favicon.svg)         vanilla JS
 
-server.py (standalone stdlib panel, kept)
+server.py (collector library, no HTTP layer)
 ├── Collectors: snapshot() → system, hardware, memory, filesystem,
 │               interfaces, routes, nameservers   (shared with Flask)
 ├── Connectivity: connectivity_checks() → gateway, dns, https (opt-in)
@@ -241,10 +241,7 @@ python3 run.py            # http://127.0.0.1:8200/
 ```
 
 ### Standalone Panel
-```bash
-python3 server.py --port 8765
-# Read access code from printed file path; Open http://127.0.0.1:8765/
-```
+Retired. `server.py` has no entry point; use `python3 run.py` or the container.
 
 ### Container (Production)
 ```bash
@@ -299,7 +296,7 @@ ARP/NDP neighbor table; passive service discovery (mDNS, SSDP); network map visu
 ### 8. Complete the Flask Port
 - ~~Wire connectivity diagnostics into the Flask dashboard~~ — done, see Milestone 5
 - ~~Enforce login redirect / lock the whole app when auth is on~~ — done: the inventory and organizer blueprints gate on the session (`auth.requires_session_view`), so locked pages redirect to the dashboard and JSON callers get 401
-- Retirement: `server.py`'s HTTP layer is now redundant (collectors, actions, and connectivity are all reached through the Flask app). Drop it once the standalone panel is no longer needed, keeping its collectors + actions as an importable library.
+- ~~Retirement: `server.py`'s HTTP layer~~ — done 2026-09-26. `LocalServer`, `Handler`, `main()`, the `--port` flag and the orphaned `index.html` are removed; the collectors, actions, `SnapshotCache` and `valid_endpoint` stay because `system_manager/` imports them. `test_server.py` went 24 → 19 tests.
 
 ---
 
@@ -347,7 +344,7 @@ Clean through `2252b33` ("docs: scope the requested subtitle auto-fetch task"). 
      data, plus `/health` → `{"status":"ok"}`. `nm_activate` is the one action
      still refused — see the checkpoint note above; that is a polkit decision,
      not an environment problem.
-- Decide: retire `server.py`'s standalone panel now that Flask covers all of it, or keep it as a thin wrapper over `system_manager`
+- ~~Decide: retire `server.py`'s standalone panel~~ — done, see the retirement note above
 - Package & update management (#2) is the highest-value next feature
 
 ### Requested: richer filters + sorting on the Video Library page

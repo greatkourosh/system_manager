@@ -32,7 +32,7 @@ leaves existing ones valid, so one browser can hold several live sessions at
 once. Rotating the access code does not invalidate a session you already hold.
 
 ### Access Code
-- Written to the file at `SYSTEM_MANAGER_AUTH_TOKEN_PATH` (600 perms) when set, with the same behavior as the standalone panel
+- Written to the file at `SYSTEM_MANAGER_AUTH_TOKEN_PATH` (600 perms) when set
 - Rotates after each successful login
 - Never appears in URLs, logs, or responses
 

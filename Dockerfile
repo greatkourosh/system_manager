@@ -13,7 +13,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY run.py server.py index.html ./
+COPY run.py server.py ./
 COPY system_manager/ system_manager/
 COPY templates/ templates/
 COPY static/ static/

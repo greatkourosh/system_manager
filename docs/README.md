@@ -47,7 +47,7 @@ each time you need to log in. `/health` is the only unauthenticated endpoint.
   - `organizer` — mounts the sibling folder_organizer app under `/organizer`
   - `inventory` — hardware inventory (SQLite store, CRUD + export)
 - **Templates/static** under `templates/`, `static/` (Jinja, vanilla JS/CSS)
-- **Standalone panel** (`server.py`, stdlib-only, `--port 8765/4000`) superseded by the Flask app; kept until its HTTP layer is retired
+- **Collector library** (`server.py`, stdlib-only, no HTTP layer) — imported by `system_manager/` for its collectors, connectivity probes and action primitives. Its standalone panel was retired 2026-09-26.
 - **Containerized** with host mounts for `/proc`, `/sys`, `/etc`, dbus
 - **72 unit/integration tests** (`tests/test_server.py`, `tests/test_flask_app.py`, `tests/test_connectivity.py`, `tests/test_inventory.py`, `tests/test_lock.py`)
 

@@ -2,7 +2,7 @@
 
 ## Overview
 
-The canonical app is a **Flask application** (`system_manager/`) that mounts feature modules as blueprints. It serves Jinja templates + a small vanilla-JS dashboard and runs unprivileged, reading host state via the collector functions from the sibling `server.py`.
+The canonical app is a **Flask application** (`system_manager/`) that mounts feature modules as blueprints. It serves Jinja templates + a small vanilla-JS dashboard and runs unprivileged, reading host state via the collector functions from the sibling `server.py` collector library.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -30,7 +30,7 @@ The canonical app is a **Flask application** (`system_manager/`) that mounts fea
    /etc/...     os.statvfs       (host binaries via mounts)
 ```
 
-> **Standalone panel** — `server.py` is still a complete stdlib-only HTTP server (`ThreadingHTTPServer`) serving its own embedded `index.html`, but it is now fully superseded: connectivity diagnostics, access-code auth, actions, and audit all live in `system_manager/` (`connectivity.py`, `auth.py`), which imports `server.py` for its collectors. Dashboard is the Flask app; the standalone panel is kept only until its HTTP layer is retired.
+> **Standalone panel — retired 2026-09-26.** `server.py` was a stdlib-only `ThreadingHTTPServer` with its own embedded `index.html`. Its HTTP layer (`LocalServer`, `Handler`, `main()`, the `--port` flag) and the orphaned `index.html` are gone. What remains is the part `system_manager/` actually imports: the read-only collectors, the connectivity probes, the action/audit primitives and `SnapshotCache`. Run the dashboard with `run.py` or the container; there is no second entry point.
 
 ## Core Modules
 
@@ -66,7 +66,7 @@ Only runs when `config.enabled == true`. Uses configured destination (validated 
 - **Stale detection**: >30s old or collection error
 - **Thread-safe** `get()` returns `{state, detail, data, connectivity, checks, explanations}`
 
-> `SnapshotCache` is the standalone panel's store. Under Flask, the 60s connectivity cache lives in `system_manager/connectivity.py:ConnectivityStore` (same lock + staleness rules), while `status.collect()` stays a thin uncached collector; the two share `server.py`'s `connectivity_checks()`/`connectivity_diagnosis()`.
+> `SnapshotCache` in `server.py` is the panel's original store. Under Flask, the 60s connectivity cache lives in `system_manager/connectivity.py:ConnectivityStore` (same lock + staleness rules), while `status.collect()` stays a thin uncached collector; the two share `server.py`'s `connectivity_checks()`/`connectivity_diagnosis()`.
 
 ### `ActionAudit` — SQLite Logging
 ```sql
@@ -224,7 +224,7 @@ index.html (served by /)
 | Smoke | Manual / browser | Full UI flow, container mounts, real system data |
 
 Run: `python3 -m pytest -q` (72 tests + 40 subtests, ~4s)
-Test modules: `test_server.py` (24 — collectors/cache/HTTP on the standalone panel), `test_connectivity.py` (11 — config, scan cadence, endpoint validation, API auth), `test_flask_app.py` (10 — Flask auth + approval flow), `test_lock.py` (9 — module blueprint gating), `test_inventory.py` (5 — store + API).
+Test modules: `test_server.py` (19 — collectors, cache and actions), `test_connectivity.py` (11 — config, scan cadence, endpoint validation, API auth), `test_flask_app.py` (10 — Flask auth + approval flow), `test_lock.py` (9 — module blueprint gating), `test_inventory.py` (5 — store + API).
 
 ## Extensibility Points
 

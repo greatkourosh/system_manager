@@ -161,21 +161,16 @@ python3 run.py            # Flask app on http://127.0.0.1:8200/
 # Authorisation disabled by default; set DISABLE_AUTH=0 + a token path to enable.
 ```
 
-The standalone stdlib panel (superseded by the Flask app; reference only) is still:
-```bash
-python3 server.py --port 8765
-# Output:
-# System Manager: http://127.0.0.1:8765
-# Local access code file: /tmp/system-manager-XXXXXX/access-code
-# Audit database: /tmp/system-manager-XXXXXX/actions.db
-```
+There is no standalone panel any more. `server.py` is a library of read-only
+collectors, the connectivity probes and the action/audit primitives, imported
+by `system_manager/`; it has no `__main__` and no HTTP server, so the only way
+to run the dashboard is `run.py` or the container.
 
 ### Environment Variables
 ```bash
 DISABLE_AUTH=1 python3 run.py                       # Skip login (Flask)
 SYSTEM_MANAGER_AUTH_TOKEN_PATH=/data/access-code    # Write rotating code (Flask)
-DISABLE_AUTH=0 python3 server.py --port 8765        # standalone panel, auth on
-HOST_ROOT=/host python3 server.py                   # Container-style paths
+HOST_ROOT=/host python3 run.py                      # Container-style paths
 ```
 
 ---
@@ -226,7 +221,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 /opt/system-manager/server.py --port 8765
+ExecStart=/usr/bin/python3 /opt/system-manager/run.py
 WorkingDirectory=/opt/system-manager
 Restart=on-failure
 RestartSec=5
@@ -241,7 +236,7 @@ WantedBy=default.target
 ```bash
 systemctl --user daemon-reload
 systemctl --user enable --now system-manager
-# Access at http://127.0.0.1:8765/
+# Access at http://127.0.0.1:4000/
 # Access code in journal: journalctl --user -u system-manager -f
 ```
 
