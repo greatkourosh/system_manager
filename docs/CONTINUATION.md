@@ -370,6 +370,81 @@ existing poster-cache pattern (`tmdb_client.py` → `data/posters_state.json`)
 rather than calling out to the network on page render. If neither is wanted,
 ship 1–5 and drop the RT idea — the page is still much more useful.
 
+### Requested: auto-download subtitles for series/movies missing them
+
+For every card on `/organizer/videos` that lacks a subtitle, add an option to
+auto-fetch it. **A fetcher already exists and is not wired to the page** —
+`folder_organizer/fetch_subtitles.py` targets exactly this set, and has run
+successfully: `commands_to_run/subtitle_log.txt` records **45 `FETCHED` lines**
+against 59 `FAIL`/`NO-RESULT` (last run 2026-09-02, `mode=APPLY: fetched=25
+failed=1 checked=26`). The work is therefore to expose it as a UI action, not
+to write a downloader.
+
+**Where code lives:** the **`folder_organizer` checkout**, not this repo.
+`app.py` (new `POST` route), `templates/videos.html` (per-card control),
+`fetch_subtitles.py` (reused as a library, or shelled out to). Because a new
+`post('/api/...')` call site is involved, `system_manager/organizer.py`'s
+`_JS_CALL_RE` already covers it — the regex prefixes any `/…` literal that is not
+already under `/organizer`, so a new endpoint is rewritten for free. No change
+to this repo needed.
+
+**The blocker to resolve first — the media library is not reachable from this
+host.** `data/video_library.json` paths are **Windows**, e.g.
+`G:\Movies\1939 - Gone with the Wind …\Gone with the Wind.avi`, and
+`os.path.exists()` on that string returns `False` here. `config.json` lists
+Windows roots (`roots_windows`) and Linux roots (`roots_linux`) side by side;
+the library was scanned on Windows and copied over. There is no `/mnt/g`, no
+`/media/G`, and no `G:` entry in `/etc/fstab`. The 45 past downloads were
+written on the Windows machine, not here.
+
+So a fetch button served from the container cannot write next to the video
+files — there is no media mount, and `docker-compose.yml` deliberately does not
+add one (it only ever *reads* the library, and `system_manager`'s own contract is
+that the library needs no mount). Decide before building:
+
+1. **Run the fetch host-side, UI only queues it.** The container writes a job
+   to `commands_to_run/`; something on the host with `G:` access runs
+   `fetch_subtitles.py --apply`. Needs a runner, but matches how the organizer
+   already treats its media.
+2. **Mount the library into the container and translate the paths.** Only viable
+   if `G:` is reachable *somewhere* to mount. It currently is not — nothing to
+   mount. Would also need `G:\…` → mount-point prefix rewriting, since the
+   stored paths are Windows regardless.
+3. **Drop the write, keep the lookup.** The page can search OpenSubtitles and
+   show candidates/links for manual download. No quota, no path problem, but the
+   user still downloads by hand.
+
+Options 1 and 2 both burn the **free-tier quota of ~20 downloads/24h** — the
+existing script's own docstring, and why it has `--budget`. Any UI must expose
+that as a per-run cap and default to **dry-run**, not silently fire 410 cards.
+
+**Scale of the target set** (from `data/video_library.json`, 2026-09-17):
+
+| | Count |
+|---|---|
+| Cards missing FA **or** EN | **410 / 446** |
+| — `movies` | 270 of 287 |
+| — `serials` | 108 of 124 |
+| — `videos` | 32 of 35 |
+
+410 at ~1.1 s/rate-limited request and a 20/24h quota is **~20 days** of manual
+runs; the page should say so rather than offering a one-click "fetch all".
+
+**Where the data falls short for this task.** The fetcher resolves per-video
+paths as `c.get("videos") or [{"path": c["sample_video"]}]` — but **0 of 446
+cards carry a `videos` key** in the current build. Every card therefore falls
+back to `sample_video`, so one download per card: a 24-episode serial gets one
+subtitle, not 24. Fetching all episodes needs either a re-scan that emits
+`videos[]` (the scanner already groups by main item — see commit `bfc1938`,
+782→446 cards) or a re-glob of `dir` at fetch time. The former is the right
+fix; the latter is a one-liner and unblocks the feature now.
+
+**Already filtered for you.** The page's `sub` param (`app.py:110-128`) already
+does `missing-fa` / `missing-en` / `missing-both`, so a "fetch what's missing"
+action can be scoped to the current filter with no new query param. The card
+badges at `videos.html:59-61` already show FA/EN state per card, so the button
+can sit right there and only appear when a badge is missing.
+
 ### Requested: series-state badges + a "Recommended" badge
 
 Same placement as the task above — a change to the **`folder_organizer`**
