@@ -33,7 +33,32 @@ Python 3.14 slim + iproute2, net-tools, network-manager, systemd; host network +
 - **Frontend:** Jinja templates (`templates/`) + `static/app.js` with unlock, actions (approve→execute), audit, and connectivity renderers; module cards with mount-aware links; Network card holds the connectivity consent form
 - **Docker:** Dockerfile now installs Flask/gunicorn and copies the package + templates + static; compose runs `gunicorn run:app` on :4000
 - **Wiring fix:** module URLs no longer leak `?subpath=`; `inject_common` provides `env.authenticated` so the dashboard hides the unlock banner when auth is off
-- **Tests:** 57 passing — 24 `test_server.py` + `test_flask_app.py` (auth + approval lifecycle) + `test_inventory.py` (store + API) + `test_connectivity.py` (config, scan cadence, endpoint validation, API auth) + `test_lock.py` (module blueprint gating)
+- **Tests:** 59 passing — 24 `test_server.py` + 11 `test_connectivity.py` (config, scan cadence, endpoint validation, API auth) + 10 `test_flask_app.py` (auth + approval lifecycle) + 9 `test_lock.py` (module blueprint gating) + 5 `test_inventory.py` (store + API)
+
+### 2026-09-26 — Live Verification Pass (Milestone 6, docs only)
+Ran the full suite (59 pass) and exercised the running container end-to-end
+against the real host — login, `/api/status`, `/api/connectivity`,
+`/api/audit`, `/inventory/`, `/api/services`, `/api/profiles`.
+
+**Verified working:** dashboard observation (returns real host data —
+`ASUS`, `i5-13400F`, 649 GB free), network, connectivity, audit, inventory,
+auth (401 before login, session cookie after, code rotates on login).
+
+**Found broken — the action features (3 independent bugs, all reproduced):**
+1. `docker-compose.yml` sets `DBUS_SYSTEM_BUS_ADDRESS=unix:path=/host/run/dbus/system_bus_socket`,
+   but only `/host/{etc,proc,sys}` are mounted — the socket is at
+   `/run/dbus/system_bus_socket`.
+2. AppArmor's `docker-default` profile denies D-Bus, so `nmcli` fails with
+   `AccessDenied: An AppArmor policy prevents this sender...` even with the
+   path fixed. Needs `security_opt: [apparmor=unconfined]`.
+3. `system_manager/auth.py` calls `systemctl --user` as root; the user bus
+   refuses root (`Transport endpoint is not connected`). Same command works
+   as uid 1000, or over systemd's `--machine=<user>@.host` proxy as root.
+
+Fixes 1–2 are container config and are now documented (not yet applied — the
+AppArmor change loosens a security boundary and was left for an explicit
+decision). Fix 3 needs a code change in `auth.py`. **This is the top open
+item**; see "Next Steps".
 
 ---
 
@@ -127,15 +152,16 @@ python3 server.py --port 8765
 
 ### Container (Production)
 ```bash
-# .env must contain DISABLE_AUTH=1 (or remove for auth)
 docker compose up -d --build
-# Open http://localhost:4000/
+# Open http://localhost:4000/ and unlock with the access code:
+docker compose exec system-manager cat /data/access-code
+# The code rotates on every successful login.
 ```
 
 ### Tests
 ```bash
-python3 -m unittest discover -s tests -v
-# 59 tests, ~4s
+python3 -m pytest -q
+# 59 tests + 40 subtests, ~4s
 ```
 
 ---
@@ -183,24 +209,26 @@ ARP/NDP neighbor table; passive service discovery (mDNS, SSDP); network map visu
 
 ## Obsidian Vault Sync
 
-**Vault path:** `~/Obsidian/System Manager/`
+**Vault path:** `/media/kourosh/DEVNVME/projects/kourosh_vault` (the active
+vault; a separate git repo, not a submodule of this project).
 
 | File | Purpose |
 |------|---------|
-| `Project Overview.md` | This summary |
-| `Architecture.md` | Module diagram, data flow |
-| `API Reference.md` | Full endpoint specs |
-| `Deployment.md` | Docker, systemd, reverse proxy |
-| `Testing.md` | Test patterns, fixtures, CI |
-| `Troubleshooting.md` | Common issues, logs, debug tips |
+| `docs/SYSTEM-MANAGER.md` | Vault-side note: what the project is, how to run it, and its known problems |
 
-Run `./scripts/sync-to-obsidian.sh` (to be created) to export docs.
+The vault follows a one-note-per-project convention (`NEXUS-MANAGER.md`,
+`REVERSE-PROXY.md`, …) rather than mirroring the full `docs/` tree, so the
+detail lives here and the vault note links back to it. The
+`./scripts/sync-to-obsidian.sh` described in earlier revisions was never
+written; `scripts/` does not exist in this project.
 
 ---
 
 ## Git Status
 
-Clean through `d1ac423` ("Port connectivity diagnostics and lock the module blueprints"), which completes Milestone 5: the connectivity port (`system_manager/connectivity.py`, the Network card UI, API docs) and the app-wide lock (`auth.requires_session_view` on the inventory/organizer blueprints). 57 tests pass. Nothing is uncommitted.
+Clean through `b13e4db` ("Require auth by default in the container"). Milestone 5 completed in `d1ac423`. The 2026-09-26 verification pass (Milestone 6) is documentation-only — no application code changed. 59 tests pass.
+
+> **Three known bugs are documented but unfixed** (see the Milestone 6 entry): the D-Bus path, the AppArmor denial, and the root/`systemctl --user` mismatch. Actions are unavailable in the container until all three are addressed.
 
 > `core.filemode` is set to `false` on this clone, so the older repo-wide `100644 → 100755` mode flips no longer appear in diffs.
 
@@ -212,5 +240,9 @@ Clean through `d1ac423` ("Port connectivity diagnostics and lock the module blue
 - ~~Wire the connectivity diagnostics into the Flask dashboard~~ — done, see Milestone 5
 - ~~Enforce login redirect / lock the whole app when auth is on~~ — done; see `tests/test_lock.py`
 - ~~Commit the Milestone 5 remainder~~ (connectivity port + lock) — done in `d1ac423`
+- **Fix the action features in the container** — highest priority. In order:
+  1. `docker-compose.yml`: `DBUS_SYSTEM_BUS_ADDRESS` → `unix:path=/run/dbus/system_bus_socket`
+  2. `docker-compose.yml`: add `security_opt: [apparmor=unconfined]` (a deliberate security-boundary loosening — decide explicitly before shipping)
+  3. `system_manager/auth.py`: stop calling `systemctl --user` as root. Either run the container as the host uid, or switch to `systemctl --machine=<user>@.host --user` over the system bus (verified working as root). Whichever is chosen, it should be covered by a test — the current suite is green *because* it never exercises a real bus.
 - Decide: retire `server.py`'s standalone panel now that Flask covers all of it, or keep it as a thin wrapper over `system_manager`
 - Package & update management (#2) is the highest-value next feature

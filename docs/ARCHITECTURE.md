@@ -109,6 +109,35 @@ Indexes on `ts` and `token_hash`. Parameterized queries only.
 | `/var/run/dbus` | `/var/run/dbus` | System dbus (NM, systemd) |
 | `/sys/class/dmi` | `/sys/class/dmi` | Hardware IDs |
 
+> **Known limitation — actions are unreachable in the container.** Read-only
+> observation works because it reads files through the mounts above, but the
+> action paths (`/api/services`, `/api/profiles`, and therefore
+> `service_restart` / `service_start` / `nm_activate`) all fail with
+> `{"state": "unavailable"}` on a stock `docker compose up`. Three
+> independent causes, each verified against a running container on
+> 2026-09-26:
+>
+> 1. **Wrong D-Bus path.** `docker-compose.yml` sets
+>    `DBUS_SYSTEM_BUS_ADDRESS=unix:path=/host/run/dbus/system_bus_socket`, but
+>    there is no `/host/run` — only `/host/etc`, `/host/proc`, and `/host/sys`
+>    are mounted. The socket is at `/run/dbus/system_bus_socket`.
+> 2. **AppArmor's `docker-default` profile denies D-Bus.** With the path
+>    corrected but AppArmor left at its default, `nmcli` fails with
+>    `GDBus.Error:org.freedesktop.DBus.Error.AccessDenied: An AppArmor policy
+>    prevents this sender from sending this message`. The container needs
+>    `--security-opt apparmor=unconfined`; with that, `nmcli con show` lists
+>    the host's real connections.
+> 3. **The user bus rejects root.** `systemctl --user` needs
+>    `XDG_RUNTIME_DIR` / `DBUS_SESSION_BUS_ADDRESS`; even with those set,
+>    connecting as root gives `Transport endpoint is not connected` (as uid
+>    1000 the same call succeeds). `auth.py` invokes `systemctl --user`
+>    directly, so it needs either to run as the host uid or to go through
+>    systemd's `--machine=<user>@.host` proxy, which works as root over the
+>    system bus.
+>
+> Causes 1 and 2 are container-config issues; cause 3 is in
+> `system_manager/auth.py`. See CONTINUATION.md for the open item.
+
 ### Capabilities
 | Capability | Used For |
 |------------|----------|
@@ -174,8 +203,8 @@ index.html (served by /)
 | Contract | Fixtures + mocks | Malformed input, timeouts, permission errors, unavailable sensors |
 | Smoke | Manual / browser | Full UI flow, container mounts, real system data |
 
-Run: `python3 -m unittest discover -s tests -v` (59 tests, ~4s)
-Test modules: `test_server.py` (collectors/cache/HTTP on the standalone panel), `test_flask_app.py` (Flask auth + approval flow), `test_inventory.py` (store + API).
+Run: `python3 -m pytest -q` (59 tests + 40 subtests, ~4s)
+Test modules: `test_server.py` (24 — collectors/cache/HTTP on the standalone panel), `test_connectivity.py` (11 — config, scan cadence, endpoint validation, API auth), `test_flask_app.py` (10 — Flask auth + approval flow), `test_lock.py` (9 — module blueprint gating), `test_inventory.py` (5 — store + API).
 
 ## Extensibility Points
 

@@ -35,7 +35,11 @@ Host: localhost:4000             # Required for all requests
 ### Disable Auth (Development)
 Set `DISABLE_AUTH=1` in `.env` or environment. All endpoints become public.
 
-> **Note:** In the container the app runs with `DISABLE_AUTH=1` from `.env`; a session cookie is not required there. The login/audit endpoints still exist for when auth is enabled.
+> **Note:** In the container auth is **on by default** — `docker-compose.yml`
+> passes `DISABLE_AUTH=${DISABLE_AUTH:-0}`, so a missing or untracked `.env`
+> can never silently expose the dashboard. Get the access code with
+> `docker compose exec system-manager cat /data/access-code`; it rotates on
+> every successful login.
 
 ---
 
@@ -127,6 +131,13 @@ Returns the HTML dashboard. No auth required.
 ### `GET /api/services`
 **Auth required.** List user-level systemd services.
 
+> **Unavailable in the container (as of 2026-09-26).** This endpoint and
+> `/api/profiles` return `{"state": "unavailable", "value": null, ...}` on a
+> stock `docker compose up` — `auth.py` calls `systemctl --user` as root, and
+> the user bus refuses root. Both work when the app runs natively as the host
+> user. See DEPLOYMENT.md "NetworkManager actions fail" for the full triage
+> (the `--machine=<user>@.host` proxy works as root over the system bus).
+
 **Response:**
 ```json
 {
@@ -140,6 +151,12 @@ Critical services (journald, logind, resolved, udevd, dbus, polkit, network-mana
 
 ### `GET /api/profiles`
 **Auth required.** List NetworkManager connection profiles.
+
+> **Unavailable in the container (as of 2026-09-26)** — blocked by AppArmor's
+> default D-Bus denial and a wrong `DBUS_SYSTEM_BUS_ADDRESS` in
+> `docker-compose.yml`. Needs `security_opt: [apparmor=unconfined]` and
+> `DBUS_SYSTEM_BUS_ADDRESS=unix:path=/run/dbus/system_bus_socket`; both fixes
+> verified together against a live container. See DEPLOYMENT.md.
 
 **Response:**
 ```json

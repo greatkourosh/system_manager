@@ -16,6 +16,20 @@ docker compose up -d --build
 docker compose exec system-manager cat /data/access-code
 ```
 
+The access code **rotates on every successful login** — re-read the file
+whenever you need to log in again.
+
+> **The action features do not work on a stock `compose up`.** Service restart
+> and NetworkManager profile activation return
+> `{"state": "unavailable"}`; the dashboard's service and profile panels show
+> "Could not list user services." / "Could not list NetworkManager profiles."
+> Read-only observation (CPU, memory, disk, network, hardware, audit log,
+> inventory) is unaffected. The cause is three separate bugs — a wrong
+> D-Bus path in `docker-compose.yml`, AppArmor's default profile denying
+> D-Bus, and `auth.py` calling `systemctl --user` as root. The first two are
+> documented and fixable in this file; the third is an open code change. See
+> CONTINUATION.md for the full write-up.
+
 Authentication is **on by default**. A clone with no `.env` starts locked; the
 access code is written to `./data/access-code` on the host (and regenerated on
 each successful login, so a leaked file alone is not enough). Because the
@@ -48,7 +62,7 @@ running on an isolated network.
 | `/sys` | `/host/sys` | ro | Yes |
 | `/etc` | `/host/etc` | ro | Yes |
 | `/run/user` | `/run/user` | ro | Yes (user systemd) |
-| `/var/run/dbus` | `/var/run/dbus` | ro | Yes (NM, systemd) |
+| `/var/run/dbus` | `/var/run/dbus` | ro | Yes (NM, systemd) — see the note below |
 | `/sys/class/dmi` | `/sys/class/dmi` | ro | Yes (hardware IDs) |
 | `./data` | `/data` | rw | Yes (access code, audit + inventory DBs) |
 
@@ -59,6 +73,31 @@ running on an isolated network.
 | `SYS_RESOURCE` | `getloadavg()`, resource limits |
 | `NET_ADMIN` | `nmcli` network operations |
 | `CAP_DAC_READ_SEARCH` | Read root-owned files via mounts |
+
+### AppArmor (required for the action features)
+
+The host's AppArmor `docker-default` profile **denies D-Bus** traffic from
+inside a container. Without an override, `nmcli` fails with:
+
+```
+GDBus.Error:org.freedesktop.DBus.Error.AccessDenied: An AppArmor policy
+prevents this sender from sending this message to this recipient
+```
+
+The action features (NetworkManager profiles, service restart) need
+`--security-opt apparmor=unconfined`. Read-only observation does **not** — it
+reads files through the mounts, never the bus — so the dashboard works without
+this. To enable the actions, add to `docker-compose.yml`:
+
+```yaml
+    security_opt:
+      - apparmor=unconfined
+```
+
+This is a deliberate loosening of the container's security boundary. It is
+defensible here only because the container already runs as root with
+`SYS_ADMIN`, `SYS_RESOURCE`, `NET_ADMIN` and `host` networking; see the
+limitations section in CONTINUATION.md before enabling it anywhere else.
 
 ### Network & PID
 - `network_mode: host` — Direct access to host network stack
@@ -253,6 +292,50 @@ cat .env
 docker exec system-manager systemctl is-active NetworkManager
 # Check checkpoint support
 docker exec system-manager /usr/bin/nmcli con checkpoint
+```
+
+This is the single most common failure on a stock deployment, and it has
+three independent causes. Diagnose them in order — each one masks the next.
+
+**1. D-Bus path points at a directory that does not exist.**
+```bash
+# Wrong path — the mount is /var/run/dbus, not /host/run/dbus
+docker exec system-manager printenv DBUS_SYSTEM_BUS_ADDRESS
+# Correct: unix:path=/run/dbus/system_bus_socket
+docker exec system-manager ls -la /run/dbus/system_bus_socket
+```
+Fix in `docker-compose.yml`:
+```yaml
+- DBUS_SYSTEM_BUS_ADDRESS=unix:path=/run/dbus/system_bus_socket
+```
+
+**2. AppArmor denies D-Bus.** Symptom after fixing (1) — the socket exists but
+`nmcli` still refuses:
+```bash
+docker exec system-manager nmcli -t -f NAME,TYPE,DEVICE con show
+# GDBus.Error:...AccessDenied: An AppArmor policy prevents this sender...
+```
+Fix with `security_opt: [apparmor=unconfined]` (see the AppArmor section above).
+Verify — this should list your real connections:
+```bash
+netplan-eno1:802-3-ethernet:eno1
+br-11bc256a9deb:bridge:br-11bc256a9deb
+```
+
+**3. The user bus rejects root.** Affects services, not NetworkManager. Even
+with the environment set, connecting as root fails while the same call as the
+host uid succeeds:
+```bash
+# As root: "Transport endpoint is not connected"
+docker exec system-manager busctl --address=unix:path=/run/user/1000/bus list
+# The same container started with --user 1000:1000 works.
+```
+`system_manager/auth.py` calls `systemctl --user` directly, so user services
+stay unavailable until it either runs as the host uid or switches to systemd's
+`--machine=<user>@.host` proxy over the system bus (verified working as root):
+```bash
+docker exec system-manager \
+  systemctl --machine=<user>@.host --user list-units --type=service
 ```
 
 ### Filesystem reading unavailable

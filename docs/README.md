@@ -16,6 +16,16 @@ python3 run.py
 # Open http://127.0.0.1:8200/
 ```
 
+The access code **rotates on every successful login**, so re-read the file
+each time you need to log in. `/health` is the only unauthenticated endpoint.
+
+> **Actions don't work in the container yet.** Service restart and
+> NetworkManager activation return `{"state": "unavailable"}` on a stock
+> `compose up` — three separate bugs (wrong D-Bus path, AppArmor denying
+> D-Bus, and `systemctl --user` being called as root). Everything else —
+> observation, connectivity, audit, inventory — works. The two config fixes
+> and the full triage are in [DEPLOYMENT.md](DEPLOYMENT.md#networkmanager-actions-fail).
+
 ## Features
 
 | Category | Capabilities |
