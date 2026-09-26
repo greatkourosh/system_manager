@@ -98,6 +98,13 @@ mount and an expired session, and the dashboard renders both the same way. A
 per-module 503 carrying a `detail` field means the loader; a uniform 302/401
 across all modules means auth. Check the session before editing a loader.
 
+**Diagnostic note:** media paths in `video_library.json` are **Windows** (`G:\…`)
+and will *always* fail `os.path.exists()` on this host — the drive is really at
+`/media/kourosh/Multimedia`. That is not a missing library and not a broken
+scan; 424/446 cards resolve once `G:` is stripped and `\` swapped for `/`. Do
+not conclude the library is absent, and do not "fix" the scanner, before trying
+the translation. (Details in the subtitle task under Next Steps.)
+
 ---
 
 ## Architecture
@@ -264,9 +271,9 @@ written; `scripts/` does not exist in this project.
 
 ## Git Status
 
-Clean through `19b1a3b` ("Keep existing sessions alive when a second one logs in"). Milestone 5 completed in `d1ac423`. The 2026-09-26 verification pass (Milestone 6) was documentation-only. A later pass on the same day fixed four container/host bugs — see the Milestone 7 entry. 66 tests pass.
+Clean through `2252b33` ("docs: scope the requested subtitle auto-fetch task"). Milestone 5 completed in `d1ac423`. The 2026-09-26 verification pass (Milestone 6) was documentation-only. A later pass on the same day fixed four container/host bugs — see the Milestone 7 entry. 72 tests + 40 subtests pass (re-verified 2026-09-26, ~4s).
 
-> **Three known bugs are documented but unfixed** (see the Milestone 6 entry): the D-Bus path, the AppArmor denial, and the root/`systemctl --user` mismatch. Actions are unavailable in the container until all three are addressed. The container no longer runs as root, so cause 3 now needs the `--machine=<user>@.host` form rather than a plain `systemctl --user`.
+> **Three container bugs were documented as unfixed** (see the Milestone 6 entry): the D-Bus path, the AppArmor denial, and the root/`systemctl --user` mismatch. All three now have fixes in the working tree — `docker-compose.yml` corrects `DBUS_SYSTEM_BUS_ADDRESS` and adds `security_opt: [apparmor=unconfined]`, and `auth.py` gained a per-call `_subprocess_env()`. `SubprocessEnvTests` in `tests/test_flask_app.py` covers the env-building logic against stubs. **None of it is verified against a live bus**, and the AppArmor line is a deliberate security-boundary loosening — confirm both before treating actions as working.
 
 > `core.filemode` is set to `false` on this clone, so the older repo-wide `100644 → 100755` mode flips no longer appear in diffs.
 
@@ -278,18 +285,17 @@ Clean through `19b1a3b` ("Keep existing sessions alive when a second one logs in
 - ~~Wire the connectivity diagnostics into the Flask dashboard~~ — done, see Milestone 5
 - ~~Enforce login redirect / lock the whole app when auth is on~~ — done; see `tests/test_lock.py`
 - ~~Commit the Milestone 5 remainder~~ (connectivity port + lock) — done in `d1ac423`
-- **Fix the action features in the container** — highest priority. In order:
-  1. `docker-compose.yml`: `DBUS_SYSTEM_BUS_ADDRESS` → `unix:path=/run/dbus/system_bus_socket`
-  2. `docker-compose.yml`: add `security_opt: [apparmor=unconfined]` (a deliberate security-boundary loosening — decide explicitly before shipping)
-  3. `system_manager/auth.py`: stop calling `systemctl --user` as root. **The
-     symptom changed but is not fixed** by `838aa48`. As `${UID}` it now fails
-     differently — `Failed to connect to user scope bus via local transport:
-     $DBUS_SESSION_BUS_ADDRESS and $XDG_RUNTIME_DIR not defined` — because the
-     container has no session bus. `pid: host` alone is not enough. Switch to
-     `systemctl --machine=<user>@.host --user` over the system bus, which needs
-     the `/run/user` and `/var/run/dbus` mounts already present plus cause 1
-     fixed. Whichever is chosen should be covered by a test — the current suite
-     is green *because* it never exercises a real bus.
+- **Fix the action features in the container** — highest priority, and all three
+  causes now have fixes in the working tree: `docker-compose.yml` corrects
+  `DBUS_SYSTEM_BUS_ADDRESS` and adds `security_opt`, `auth.py` gained
+  `_subprocess_env()`, and `SubprocessEnvTests` covers the env logic. Remaining
+  work:
+  1. ~~`docker-compose.yml`: `DBUS_SYSTEM_BUS_ADDRESS` → `unix:path=/run/dbus/system_bus_socket`~~ — done. `_subprocess_env()` also sets both addresses per call, so the variable is belt-and-braces rather than load-bearing.
+  2. ~~`docker-compose.yml`: add `security_opt: [apparmor=unconfined]`~~ — done. Still a deliberate security-boundary loosening to confirm explicitly before shipping.
+  3. **Verify against a running container.** `SubprocessEnvTests` stubs
+     `os.path.exists` / `os.path.isdir`, so it proves the env is *built* correctly
+     but not that systemctl or nmcli accept it. Run the `docker exec` block in
+     the vault note against a live stack before closing this out.
 - Decide: retire `server.py`'s standalone panel now that Flask covers all of it, or keep it as a thin wrapper over `system_manager`
 - Package & update management (#2) is the highest-value next feature
 
@@ -388,56 +394,57 @@ to write a downloader.
 already under `/organizer`, so a new endpoint is rewritten for free. No change
 to this repo needed.
 
-**The blocker to resolve first — the media library is not reachable from this
-host.** `data/video_library.json` paths are **Windows**, e.g.
-`G:\Movies\1939 - Gone with the Wind …\Gone with the Wind.avi`, and
-`os.path.exists()` on that string returns `False` here. `config.json` lists
-Windows roots (`roots_windows`) and Linux roots (`roots_linux`) side by side;
-the library was scanned on Windows and copied over. There is no `/mnt/g`, no
-`/media/G`, and no `G:` entry in `/etc/fstab`. The 45 past downloads were
-written on the Windows machine, not here.
+**The blocker, now solved: the library IS on this host — the paths just need
+translating.** `data/video_library.json` stores **Windows** paths, e.g.
+`G:\Movies\1939 - Gone with the Wind …\Gone with the Wind.avi`, which is why a
+naive `os.path.exists()` returns `False` and the library *looks* absent. The
+`G:` drive is mounted at **`/media/kourosh/Multimedia`** (`/dev/sda2`, **ntfs3**,
+`rw`, `uid=1000`); its children match `config.json`'s `roots_windows` exactly
+(`G:/Movies`, `G:/Serials`, `G:/Videos` → `Movies`, `Serials`, `Videos`). Strip
+the `G:` prefix and swap `\` for `/` and **424 of 446 cards resolve**.
 
-So a fetch button served from the container cannot write next to the video
-files — there is no media mount, and `docker-compose.yml` deliberately does not
-add one (it only ever *reads* the library, and `system_manager`'s own contract is
-that the library needs no mount). Decide before building:
+So the fix is a `G:\…` → `/media/kourosh/Multimedia/…` prefix rewrite, applied
+wherever a library path becomes a real path. It must be applied to `dir` and
+`sample_video` alike, and it belongs in `fetch_subtitles.py` / `app.py` — not
+here.
 
-1. **Run the fetch host-side, UI only queues it.** The container writes a job
-   to `commands_to_run/`; something on the host with `G:` access runs
-   `fetch_subtitles.py --apply`. Needs a runner, but matches how the organizer
-   already treats its media.
-2. **Mount the library into the container and translate the paths.** Only viable
-   if `G:` is reachable *somewhere* to mount. It currently is not — nothing to
-   mount. Would also need `G:\…` → mount-point prefix rewriting, since the
-   stored paths are Windows regardless.
-3. **Drop the write, keep the lookup.** The page can search OpenSubtitles and
-   show candidates/links for manual download. No quota, no path problem, but the
-   user still downloads by hand.
+**22 cards still don't resolve, and none of them are the feature's fault:**
 
-Options 1 and 2 both burn the **free-tier quota of ~20 downloads/24h** — the
-existing script's own docstring, and why it has `--budget`. Any UI must expose
-that as a per-run cap and default to **dry-run**, not silently fire 410 cards.
+| Cause | Count | What they are |
+|---|---|---|
+| `F:` and `E:` drives not mounted | 19 | 17 are Dota 2 `.webm` game assets (`heroes`, `events`, `portraits`…) — no subtitles exist for these at all; 2 are `E:` |
+| Folder deleted since the 2026-09-17 scan | 3 | e.g. `1997 - Gattaca` → now `Gattaca.1997.1080p.Farsi.Dubbed.mkv` (the `- Copy` was removed) |
 
-**Scale of the target set** (from `data/video_library.json`, 2026-09-17):
+Filtering to cards that are actually present and actually wantable subtitles
+leaves the real target set:
 
 | | Count |
 |---|---|
-| Cards missing FA **or** EN | **410 / 446** |
-| — `movies` | 270 of 287 |
-| — `serials` | 108 of 124 |
-| — `videos` | 32 of 35 |
+| Cards needing FA **or** EN | 410 |
+| — unresolvable (F:/E:/deleted) | 22 |
+| — **actually fetchable** | **388** (268 movies, 108 serials, 12 videos) |
 
-410 at ~1.1 s/rate-limited request and a 20/24h quota is **~20 days** of manual
-runs; the page should say so rather than offering a one-click "fetch all".
+The 17 Dota 2 asset folders should be excluded by rule, not by path failure —
+they'd otherwise be 17 permanent "no subtitles found" failures per language.
 
-**Where the data falls short for this task.** The fetcher resolves per-video
-paths as `c.get("videos") or [{"path": c["sample_video"]}]` — but **0 of 446
-cards carry a `videos` key** in the current build. Every card therefore falls
-back to `sample_video`, so one download per card: a 24-episode serial gets one
-subtitle, not 24. Fetching all episodes needs either a re-scan that emits
-`videos[]` (the scanner already groups by main item — see commit `bfc1938`,
-782→446 cards) or a re-glob of `dir` at fetch time. The former is the right
-fix; the latter is a one-liner and unblocks the feature now.
+**Quota makes "fetch all" a trap.** OpenSubtitles free tier is **~20
+downloads/24h**. The real set needs:
+
+| Strategy | Downloads | Wall-clock at free tier |
+|---|---|---|
+| **1 file per card** (what the script does today) | **589** | ~30 days |
+| **1 file per video** (correct for serials) | **2 221** | ~4 months |
+
+1204 actual video files sit behind those 388 cards, and **0 of 446 cards carry
+a `videos[]` key** — the fetcher falls back to `c["sample_video"]`, so a
+24-episode serial would get one subtitle file and 23 episodes with none. Fixing
+the scanner to emit `videos[]` (it already groups by main item — commit
+`bfc1938`, 782→446 cards) is the real fix; re-globbing `dir` at fetch time is a
+one-line unblocker.
+
+Given those numbers, the page must **default to dry-run and show a per-run cap**
+— the existing script already takes `--budget` and `--limit` for exactly this.
+A one-click "fetch all" would surface as ~2 200 failures a month apart.
 
 **Already filtered for you.** The page's `sub` param (`app.py:110-128`) already
 does `missing-fa` / `missing-en` / `missing-both`, so a "fetch what's missing"
@@ -457,40 +464,71 @@ The card badge row is already there — `videos.html:59-61` renders
 in there; the "x of y seasons" text wants its own line under the title, not a
 badge, since it is a sentence rather than a state.
 
-**Task A — "Season N of M" on serials.** `season` and `seasons` come from the
-`S01 of 03+` token in the folder name (`video_catalog.py:16`, `SERIAL_PAT`), and
-are **2-char strings, not ints** — `'01'`, `'02'`… `'10'`, or `None`. There is
-no missing-season list, so the honest rendering is "we hold season 3 of 5",
-**not** "seasons 4 and 5 are missing". Coverage of the 124 serials:
+**Task A — "Season N of M" on serials. The `season`/`seasons` fields cannot
+answer this; the folder contents can, and they do not agree.**
 
-| Case | Count | `limited` | Render as |
-|------|-------|-----------|-----------|
-| `season` == `seasons` | 31 | `False` | "Complete" badge, no counter |
-| `season` < `seasons` | 39 | `False` | "3 of 5 seasons" + "In progress" |
-| `seasons is None`, `- Limited` in name | 45 | `True` | "Limited series" badge |
-| `seasons is None`, neither | 9 | `False` | no badge — see below |
+`season` and `seasons` are parsed from the `S01 of 03+` token in the **folder
+name** (`video_catalog.py:16`, `SERIAL_PAT`) and are 2-char strings, not ints.
+They record what the name *claims*, not what is on disk. I walked all 124 serial
+folders under `/media/kourosh/Multimedia/Serials` (1.7 TB of real media; see the
+path-rewrite note at the end of this section for how to reach them) and
+compared. **The name-derived field is wrong or misleading for 43 of the 124
+serials.** Ground truth by actual contents:
 
-So 70/124 serials can show a real "N of M" and 45 more are cleanly identifiable
-as limited; the remaining 9 are genuinely ambiguous. Three of those are
-**malformed folder names** that the regex cannot parse — `Fallout  S01 of`,
-`Taboo S01 of`, `The Day Of The Jackal S01 of` (note the trailing space, and no
-count after `of`). These are multi-season serials that fall through to the
-`YEAR_TOKEN` branch in `parse_serial`, which sets `limited: None`… in practice
-`False`, because the fallback hardcodes `d["kind"] == "Limited"` against a `None`
-group. So `limited=False` on a serial with no season data is **"unparseable
-name", not "open-ended show"** — do not render a "Complete" badge off it. The
-other six are single-season shows (`Family Guy`, `Sherlock`, `The Great`, …)
-where no badge is the right answer.
+| On-disk state | Count | Example |
+|---------------|-------|---------|
+| Every claimed season present | 27 | `Bates Motel S05 of 05` → S01–S05 all on disk |
+| **Seasons claimed but absent** | **43** | `Sense8 S02 of 02` → only `S02` on disk, S01 missing |
+| Limited series, no count in name | 45 | `Chernobyl - Limited` |
+| No count, not limited-flagged | 9 | `Family Guy`, `Sherlock` |
 
-**Task B — series-state badges.** Three states, all derivable per card with no
-extra data:
+The gaps are real, not scanner artefacts — hand-verified, e.g.:
 
-- **Limited series** — `limited is True`. 49 cards, all serials, 45 of them with
-  no season count (so the badge is the *only* signal on those).
-- **Complete** — `limited is False` and `seasons` is not `None` and
-  `int(season) >= int(seasons)`. 31 cards. Both fields must be `int()`-coerced
-  or `'10' <= '09'` sorts wrong lexicographically.
-- **In progress** — `limited is False` and `int(season) < int(seasons)`. 39 cards.
+- `The Expanse S01 of 06` → only `S01` on disk. **5 of 6 seasons missing.**
+- `The Man in the High Castle S01 of 04` → only `S01E01…E08` files. **3 missing.**
+- `Person of Interest S05 of 05` → `Season 1, 2, 4, 5` subfolders. **S03 missing.**
+- `Sense8 S02 of 02` and `The Exorcist S02 of 02` → only `S02`; **S01 missing.**
+
+So "display how many seasons we have out of how many" **is** answerable, but
+only by scanning the directory, and the answer is a *set*, not a count. Render
+the missing seasons explicitly, e.g. **"S1–S5 · missing S2–S6"** — the 43
+incomplete series are the interesting ones and a plain "1 of 6" hides which ones.
+The three folders with no season-numbered evidence at all (`Drifters`,
+`Fullmetal Alchemist Brotherhood`, `The Promised Neverland`) hold bare
+`E01…E14`-style filenames, which means season 1 only. `My Daddy Long Legs` uses
+`01 - …mkv` the same way.
+
+To make this work, `video_catalog.py:build()` has to emit a `seasons_present`
+list per serial card instead of inferring it from the name. Match, in order:
+`S01`/`S 01`/`Season 1`/`Season 01` directories, then `S01E02` filenames, then
+`01x02`, then a bare `E01`/`01.` fallback (→ season 1). Beware that the season
+regex must handle the space in `Luther S 01`, and that some shows bury seasons
+in subfolders — `Bates Motel` holds `S01`, `S05` *and* `Season 1`…`Season 4`
+(duplicated under two conventions), and `Sherlock` holds four differently-named
+season folders. `Family Guy` has `Season 01–06` then jumps to `Season 15–17`.
+
+One caveat on the scan itself: some seasons ship as **torrent-pack directories**
+that carry the season in the folder name rather than as `S01` — `The Boys` has
+`The.Boys.S03.COMPLETE.720p.AMZN.WEBRip.x264-GalaxyTV[TGx]` beside its
+`S01`/`S02`. A matcher that only accepts `S01`-style names will undercount
+these, so add a rule for `S03`-inside-a-directory-name and expect the gap list to
+shrink slightly on a second pass. Eleven folders have no season-named entry at
+all; eight are bare `E01…`/`01.` episode sets (season 1), and the other three —
+`P&B`, `سارا`, and the `Cowboy Bebop`/`Moawiya`/`Dying for Sex` limited series —
+are single-season or non-series content where "season 1" is right anyway.
+
+**Task B — series-state badges.** Three states, all derivable per card once
+Task A's `seasons_present` exists:
+
+- **Limited series** — `limited is True`. 49 cards, all serials, 45 with no
+  season count, so on those the badge is the *only* signal. Trustworthy: it is
+  read from an explicit `- Limited` token in the name.
+- **Complete** — every season in `1..seasons` is in `seasons_present`. 27 by
+  the disk check, **not** the 31 the name suggests. `int()`-coerce both sides or
+  `'10' <= '09'` sorts wrong lexicographically.
+- **Incomplete** — 43 cards, with the missing seasons listed. This is the
+  category the name-only heuristic gets most wrong, and the one most worth
+  surfacing.
 
 `limited` is tri-state (`True`/`False`/`None`); `None` means "a movie, or a
 serial whose folder name did not parse". Movies have no `season`/`seasons` at
@@ -500,9 +538,19 @@ all, so none of these three badges should ever apply to them.
 planned" and is captured by the `\d+\+?` in `SERIAL_PAT`, but the trailing `+`
 is **discarded** — it is not stored on the card. 36 folders carry it. Of those,
 30 are `season < seasons` and **6 are `season >= seasons`**, i.e. the `+`
-disagrees with the counter. Re-derive it with a regex over `folder` if the
-planned-seasons state is wanted, and treat the 6 disagreements as a data-quality
-finding to report rather than silently prefer one field.
+disagrees with the counter. Note that with the disk scan, some `+` folders are
+genuinely complete (`Foundation S02 of 03+` has S01–S03 on disk) and some are
+not (`The Boys S04 of 04+` has S01–S03 only). Re-derive the marker with a regex
+over `folder` if the planned-seasons state is wanted, and treat the 6
+name/disk disagreements as a data-quality finding to report rather than silently
+preferring one field.
+
+**Path reachability — already solved above, reuse it.** The task above already
+establishes that the media is on this host at `/media/kourosh/Multimedia/{Movies,
+Serials,Videos}` (the `G:` drive, ntfs3) and that a `G:\…` →
+`/media/kourosh/Multimedia/…` prefix rewrite resolves 424 of 446 cards. Task A
+depends on that same rewrite — the directory scan has no path to the files
+without it, so do the rewrite first and let Task A consume it.
 
 **Task C — "Recommended" for every kind (movies, serials, videos).** There is
 no recommendation field; this has to be derived, and "recommended" needs a
