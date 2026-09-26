@@ -80,6 +80,24 @@
   <div class="card">
     <h2>Network</h2>
     <div id="netBox" class="muted">waiting for data</div>
+    <h3 class="sub-head">Internet connectivity</h3>
+    <div id="connStatus" class="conn-status muted">Internet: not tested.</div>
+    <table class="kv" id="connChecks" hidden>
+      <tbody></tbody>
+    </table>
+    <div id="connExplain" class="conn-explain muted"></div>
+    <form class="conn-form" id="connForm">
+      <label for="connEndpoint">Approved HTTPS address (query strings and credentials are rejected)</label>
+      <input type="url" id="connEndpoint" maxlength="200" value="https://example.com/" required>
+      <p class="conn-note muted">Enabling this makes outbound requests to this address, your gateway, and your
+        configured DNS server every 60 seconds. No other hosts are contacted, and no subnet or port
+        scanning is performed.</p>
+      <div class="conn-actions">
+        <button type="button" class="btn" id="connEnable">Enable outbound checks</button>
+        <button type="button" class="btn secondary" id="connDisable">Disable</button>
+      </div>
+      <small class="muted conn-error" id="connError"></small>
+    </form>
   </div>
 
   <div class="card">

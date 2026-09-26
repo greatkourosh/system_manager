@@ -152,6 +152,28 @@ main { padding: 32px 28px 64px; max-width: 1280px; margin: 0 auto; }
 .net-item:last-child { border-bottom: none; }
 .net-item .iface { font-weight: 600; }
 .net-item .cidr { color: var(--muted); font-family: var(--font); }
+.sub-head { margin: 18px 0 10px; font-size: .78rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 600; }
+
+/* Connectivity diagnostics */
+.conn-status { font-size: .9rem; margin-bottom: 10px; }
+.conn-status.ok { color: var(--ok); }
+#connChecks td.ok { color: var(--ok); }
+.conn-explain { font-size: .8rem; margin: 10px 0 14px; }
+.conn-explain p { margin: 0 0 6px; }
+.conn-form { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; border-top: 1px solid var(--border); }
+.conn-form label { font-size: .78rem; color: var(--muted); }
+.conn-form input {
+  width: 100%; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--bg); color: var(--fg); font-family: var(--font); font-size: .82rem;
+}
+.conn-form input:focus { outline: none; border-color: var(--accent); }
+.conn-note { font-size: .72rem; line-height: 1.5; margin: 0; }
+.conn-actions { display: flex; gap: 8px; }
+.conn-actions .secondary { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+.conn-actions .secondary:hover { background: var(--card); color: var(--fg); transform: none; }
+.btn:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; transform: none; }
+.conn-error { color: var(--danger); }
+
 .suggestion { padding: 10px 12px; border-radius: 8px; background: var(--accent-dim); border-left: 3px solid var(--accent); margin-bottom: 8px; font-size: .85rem; }
 .suggestion .title { font-weight: 600; margin-bottom: 4px; }
 .suggestion .detail { color: var(--muted); font-size: .8rem; }

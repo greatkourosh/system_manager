@@ -3,9 +3,10 @@ import os
 import tempfile
 from pathlib import Path
 
-from flask import Flask, jsonify, render_template
+from flask import Flask, current_app, jsonify, render_template
 
 from . import auth, status
+from .connectivity import ConnectivityStore, connectivity_blueprint
 from .organizer import ORGANIZER_PATH, is_available, organizer_blueprint
 from .inventory import inventory_blueprint, is_available as inventory_available
 
@@ -33,8 +34,10 @@ def create_app(config=None):
     security.approval = auth.Approval()
     app.config["SECURITY"] = security
     app.config["AUDIT"] = auth.ActionAudit(app.config["AUDIT_PATH"])
+    app.config["CONNECTIVITY"] = ConnectivityStore()
 
     app.register_blueprint(auth.auth_blueprint())
+    app.register_blueprint(connectivity_blueprint())
     app.register_blueprint(organizer_blueprint())
     app.register_blueprint(inventory_blueprint())
 
@@ -68,7 +71,7 @@ def create_app(config=None):
     def api_status():
         if auth.require_session() is None:
             return jsonify({"error": "Unlock this dashboard with the local access code."}), 401
-        return jsonify(status.collect())
+        return jsonify(current_app.config["CONNECTIVITY"].get())
 
     @app.route("/api/series")
     def api_series():

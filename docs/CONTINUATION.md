@@ -4,7 +4,7 @@
 Local system management dashboard for Linux (Ubuntu 24.04+), running in a container with host access. Provides read-only system observation, opt-in connectivity diagnostics, and approved actions with audit logging.
 
 **App:** Flask app (`system_manager/`) hosting feature modules as blueprints, served by gunicorn in the container and `run.py` in dev.
-**Standalone panel:** `server.py` (stdlib-only, ~830 lines) still runs the interactive connectivity diagnostics not yet wired into Flask.
+**Standalone panel:** `server.py` (stdlib-only, ~830 lines) is now fully superseded by the Flask app — connectivity, actions, and audit all live in `system_manager/`, which imports `server.py` for its collectors. It is kept only until its HTTP layer is retired.
 
 ---
 
@@ -14,7 +14,7 @@ Local system management dashboard for Linux (Ubuntu 24.04+), running in a contai
 Collectors (system, hardware, memory, filesystem, network), rotating access code + session cookies, Host/Origin/CSRF validation, 12 tests. Now imported by `system_manager/status.py` so both apps report identical readings.
 
 ### 2026-09-19 — Opt-In Connectivity Diagnostics (Milestone 2) — `server.py`
-Gateway → DNS → HTTPS layered diagnosis with explicit consent UI. Standalone-only for now (the Flask dashboard points `/api/connectivity` at a 501 placeholder until this layer is ported).
+Gateway → DNS → HTTPS layered diagnosis with explicit consent UI. ***Ported to Flask*** in Milestone 5.
 
 ### 2026-09-19 — Approved Actions System (Milestone 3) — `server.py`
 service restart/start plus NetworkManager profile activation (preview → single-use approval → execute → verify → SQLite audit, NM checkpoint rollback). ***Ported to Flask** — see Milestone 5.
@@ -27,12 +27,13 @@ Python 3.14 slim + iproute2, net-tools, network-manager, systemd; host network +
   - `__init__.py` — `create_app()`, `/api/status`, `/api/series`, `/modules`
   - `status.py` — live snapshot via `server.py` collectors
   - `auth.py` — access-code auth + services/approve/execute/audit API (ported from Milestone 3), single-use approval tokens, SQLite audit
+  - `connectivity.py` — opt-in connectivity diagnostics (ported from Milestone 2): `ConnectivityStore` + GET/POST `/api/connectivity`
   - `organizer.py` — mounts the sibling folder_organizer app under `/organizer` (in-process, without copying or modifying it)
   - `inventory/` — hardware inventory blueprint with a SQLite store: real CRUD, filters, soft-delete, CSV/JSON/YAML export (was hardcoded stubs)
-- **Frontend:** Jinja templates (`templates/`) + `static/app.js` with unlock, actions (approve→execute) and audit renderers; module cards with mount-aware links
+- **Frontend:** Jinja templates (`templates/`) + `static/app.js` with unlock, actions (approve→execute), audit, and connectivity renderers; module cards with mount-aware links; Network card holds the connectivity consent form
 - **Docker:** Dockerfile now installs Flask/gunicorn and copies the package + templates + static; compose runs `gunicorn run:app` on :4000
 - **Wiring fix:** module URLs no longer leak `?subpath=`; `inject_common` provides `env.authenticated` so the dashboard hides the unlock banner when auth is off
-- **Tests:** 37 passing — original 24 `test_server.py` + `test_flask_app.py` (auth + approval lifecycle) + `test_inventory.py` (store + API)
+- **Tests:** 57 passing — 24 `test_server.py` + `test_flask_app.py` (auth + approval lifecycle) + `test_inventory.py` (store + API) + `test_connectivity.py` (config, scan cadence, endpoint validation, API auth) + `test_lock.py` (module blueprint gating)
 
 ---
 
@@ -46,6 +47,8 @@ run.py ── create_app() ── Flask
 │     ├── auth.py          → login/session, /api/services /api/profiles
 │     │                     /api/approve /api/execute /api/audit
 │     │                     Security, Approval, ActionAudit (SQLite)
+│     ├── connectivity.py  → ConnectivityStore, GET/POST /api/connectivity
+│     │                     gateway → DNS → HTTPS probes every 60s when enabled
 │     ├── organizer.py     → proxy to folder_organizer app at /organizer
 │     └── inventory/       → blueprint at /inventory; store.py (SQLite)
 │                            CRUD, filters, soft-delete, export
@@ -79,7 +82,16 @@ server.py (standalone stdlib panel, kept)
 | GET | `/api/audit` | Yes | Recent action log |
 | POST | `/api/login` | No | Exchange access code for session |
 | POST | `/api/logout` | Yes | Invalidate session |
-| POST | `/api/connectivity` | Yes | Placeholder (501) until ported |
+| GET | `/api/connectivity` | Yes | Connectivity settings + last scan (`enabled`, `endpoints`, `destination`, `last_run`, `status`, `checks`, `explanations`) |
+| POST | `/api/connectivity` | Yes | Set `{enabled, endpoints:[https://…]}`; validates each URL (https only, no credentials/query/fragment, max 200 chars) |
+
+### Connectivity Flow
+1. The dashboard's Network card shows `Internet: not tested.` while outbound checks are off.
+2. Enter an approved HTTPS endpoint → **Enable outbound checks** → `POST /api/connectivity {enabled: true, endpoints: [...]}`.
+3. On each `/api/status` poll the store runs gateway → DNS → HTTPS probes when a result older than 60s is due; `/api/status` then carries `connectivity`, `checks`, and `explanations`.
+4. **Disable** clears the checks and returns the panel to its off state.
+
+Probes contact only the approved endpoint, the default gateway, and the first configured nameserver. No scanning, and nothing runs until explicitly enabled. Each gunicorn worker keeps its own store, so with multiple workers each would scan on its own interval (the shipped Dockerfile uses `--workers 1`).
 
 Inventory module (mounted at `/inventory`): `GET/POST /inventory/items`, `GET/PATCH/DELETE /inventory/items/<id>`, `GET/POST /inventory/builds`, `GET /inventory/export?format={json,csv,yaml}`.
 Full endpoint specs in API.md.
@@ -123,7 +135,7 @@ docker compose up -d --build
 ### Tests
 ```bash
 python3 -m unittest discover -s tests -v
-# 37 tests, ~3s
+# 57 tests, ~4s
 ```
 
 ---
@@ -163,9 +175,9 @@ SMART disk monitoring (smartctl); CPU/GPU temps (lm-sensors, nvidia-smi); batter
 ARP/NDP neighbor table; passive service discovery (mDNS, SSDP); network map visualization (D3/cytoscape).
 
 ### 8. Complete the Flask Port
-- Wire connectivity diagnostics into the Flask dashboard (replace `/api/connectivity` 501)
-- Enforce login redirect / lock the whole app when auth is on (client + server)
-- Retirement: once the port is complete, drop `server.py`'s HTTP layer (keep its collectors + actions as an importable library)
+- ~~Wire connectivity diagnostics into the Flask dashboard~~ — done, see Milestone 5
+- ~~Enforce login redirect / lock the whole app when auth is on~~ — done: the inventory and organizer blueprints gate on the session (`auth.requires_session_view`), so locked pages redirect to the dashboard and JSON callers get 401
+- Retirement: `server.py`'s HTTP layer is now redundant (collectors, actions, and connectivity are all reached through the Flask app). Drop it once the standalone panel is no longer needed, keeping its collectors + actions as an importable library.
 
 ---
 
@@ -188,22 +200,17 @@ Run `./scripts/sync-to-obsidian.sh` (to be created) to export docs.
 
 ## Git Status
 
-Working tree has uncommitted changes; `git diff` shows (aside from incidental mode changes 644→755):
-- `system_manager/` — new `auth.py`, `inventory/store.py`; `__init__.py` wiring (create_app config, guarded `/api/status`), organizer/inventory API real logic
-- `templates/index.html`, `static/app.js` — unlock form, actions/audit renderers
-- `Dockerfile`, `docker-compose.yml`, `run.py` — gunicorn Flask container
-- `tests/test_flask_app.py`, `tests/test_inventory.py` — new test modules
-- `docs/*` — this update
+Clean through `ac47c92` ("Port actions, approval, audit, and auth from server.py to Flask"). The remainder of Milestone 5 — the connectivity port (`system_manager/connectivity.py`, the Network card UI, API docs) and the app-wide lock (`auth.requires_session_view` on the inventory/organizer blueprints) — is the current uncommitted change: 3 new files plus edits to 9, with 57 tests passing.
 
-> ⚠️ The uncommitted diff also contains a lot of `100644 → 100755` mode flips from a `chmod -x` on every file in a previous commit. Decide whether to keep them (they're noise) before the next commit.
-
-**Next steps listed at the end of this file.**
+> `core.filemode` is set to `false` on this clone, so the older repo-wide `100644 → 100755` mode flips no longer appear in diffs.
 
 ---
 
 ## Next Steps
 
-- Review + commit the Flask port (optionally first `git config core.filemode false` to stop the chmod noise)
-- Decide: retire `server.py`'s standalone panel after the connectivity port, or keep it as a thin wrapper over `system_manager`
-- Wire the connectivity diagnostics into the Flask dashboard (Future Work #8)
+- ~~Review + commit the Flask port~~ — done in `ac47c92`
+- ~~Wire the connectivity diagnostics into the Flask dashboard~~ — done, see Milestone 5
+- ~~Enforce login redirect / lock the whole app when auth is on~~ — done; see `tests/test_lock.py`
+- **Commit the Milestone 5 remainder** (connectivity port + lock) — everything is green, only the commit is outstanding
+- Decide: retire `server.py`'s standalone panel now that Flask covers all of it, or keep it as a thin wrapper over `system_manager`
 - Package & update management (#2) is the highest-value next feature

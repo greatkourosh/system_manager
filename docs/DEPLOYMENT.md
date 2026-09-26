@@ -71,7 +71,7 @@ python3 run.py            # Flask app on http://127.0.0.1:8200/
 # Authorisation disabled by default; set DISABLE_AUTH=0 + a token path to enable.
 ```
 
-The standalone stdlib panel (connectivity/actions reference) is still:
+The standalone stdlib panel (superseded by the Flask app; reference only) is still:
 ```bash
 python3 server.py --port 8765
 # Output:

@@ -6,6 +6,15 @@ Base URL: `http://localhost:4000/` (container, gunicorn) or `http://127.0.0.1:82
 
 All API endpoints except `/`, `/api/login`, `/api/logout` require a valid session cookie when auth is enabled.
 
+The module blueprints (`/inventory/*`, `/organizer/*`) enforce the same rule through a shared `before_request` hook. A locked request is answered according to the caller's `Accept` header:
+
+| Caller | Response |
+|--------|----------|
+| Browser navigation (`Accept: text/html`) | `302` redirect to `/`, which hosts the unlock form |
+| Fetch/JSON (`Accept: application/json`) | `401` with `{"error": "Unlock this dashboard with the local access code."}` |
+
+This covers the inventory CRUD, builds, topology, export/import, and qr routes as well as every organizer route, including its POST forms for file operations. The dashboard (`/`), `/health`, and static assets are never gated.
+
 ### Headers Required
 ```
 Cookie: sm_session=<token>
@@ -83,8 +92,37 @@ Returns the HTML dashboard. No auth required.
 - `"unavailable"` — `value: null`, `detail` explains why
 - `"stale"` — cached data >30s old or collection error
 
+### `GET /api/connectivity`
+**Auth required.** Current opt-in connectivity configuration and the last scan result.
+
+**Response:**
+```json
+{
+  "enabled": true,
+  "endpoints": ["https://example.com/"],
+  "destination": {"url": "https://example.com/", "host": "example.com", "port": 443},
+  "last_run": 1758600000.12,
+  "status": "reachable",
+  "checks": {
+    "gateway": {"state": "observed", "value": {"value": "192.168.1.1", "device": "eno1", "family": "IPv4"}},
+    "gateway_reachable": {"state": "observed", "value": {"host": "192.168.1.1", "method": "udp_connect"}},
+    "dns_configured": {"state": "observed", "value": ["1.1.1.1"]},
+    "dns_reachable": {"state": "observed", "value": {"host": "1.1.1.1", "method": "udp_connect"}},
+    "dns_resolution": {"state": "observed", "value": {"name": "example.com", "addresses": ["93.184.216.34"]}},
+    "https": {"state": "observed", "value": {"host": "example.com", "port": 443, "transport": "tls"}}
+  },
+  "explanations": ["TLS connection to example.com succeeded. Internet access works for this endpoint."]
+}
+```
+
 ### `POST /api/connectivity`
-**Only in the standalone `server.py` panel.** The Flask app (`system_manager/`) reserves this path but returns `501` — interactive connectivity checks are still standalone-only and not yet wired into the Flask dashboard. Endpoint validation rules (HTTPS only, no query/credentials, max 3) live in `server.py:valid_endpoint`.
+**Auth required.** Enable or disable outbound checks and set the approved endpoint(s).
+
+**Request:** `{"enabled": true, "endpoints": ["https://example.com/"]}`
+
+**Response:** the same shape as `GET /api/connectivity` (200). Validation rules (HTTPS only, no credentials/query/fragment, max 200 chars, max 3 endpoints) are enforced by `server.py:valid_endpoint`; a rejected request returns 400 with an `error` message. Probes run on `/api/status` when a result older than 60s is due.
+
+`{"enabled": false}` always succeeds and needs no `endpoints`: the last approved endpoint is retained but nothing is contacted, so checks can always be turned off. `enabled` must be a boolean; anything else is a 400.
 
 ### `GET /api/services`
 **Auth required.** List user-level systemd services.

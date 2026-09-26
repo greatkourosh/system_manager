@@ -11,6 +11,8 @@ import sys
 
 from flask import Blueprint, Response
 
+from . import auth
+
 __all__ = ["organizer_blueprint", "ORGANIZER_PATH", "PREFIX", "is_available"]
 
 PREFIX = "/organizer"
@@ -63,6 +65,10 @@ def organizer_blueprint():
             return ({"module": "folder_organizer", "status": "unavailable",
                      "detail": error, "expected_path": ORGANIZER_PATH}, 503)
 
+        @bp.before_request
+        def _require_login():
+            return auth.requires_session_view()
+
         return bp
 
     inner = module.app
@@ -77,6 +83,10 @@ def organizer_blueprint():
         if response.mimetype and response.mimetype.startswith("text/html"):
             response.set_data(_rewrite_absolute_urls(response.get_data()))
         return response
+
+    @bp.before_request
+    def _require_login():
+        return auth.requires_session_view()
 
     return bp
 

@@ -30,12 +30,13 @@ python3 run.py
 - **Flask app** (`system_manager/`) hosting feature modules via blueprints
   - `status` — live system snapshot (reuses `server.py` collectors)
   - `auth` — access-code auth + approved actions + SQLite audit
+  - `connectivity` — opt-in gateway → DNS → HTTPS diagnostics (reuses `server.py` probes)
   - `organizer` — mounts the sibling folder_organizer app under `/organizer`
   - `inventory` — hardware inventory (SQLite store, CRUD + export)
 - **Templates/static** under `templates/`, `static/` (Jinja, vanilla JS/CSS)
-- **Standalone panel** (`server.py`, stdlib-only, `--port 8765/4000`) kept for the interactive connectivity diagnostics not yet wired into Flask
+- **Standalone panel** (`server.py`, stdlib-only, `--port 8765/4000`) superseded by the Flask app; kept until its HTTP layer is retired
 - **Containerized** with host mounts for `/proc`, `/sys`, `/etc`, dbus
-- **37 unit/integration tests** (`tests/test_server.py`, `tests/test_flask_app.py`, `tests/test_inventory.py`)
+- **57 unit/integration tests** (`tests/test_server.py`, `tests/test_flask_app.py`, `tests/test_connectivity.py`, `tests/test_inventory.py`, `tests/test_lock.py`)
 
 ## Documentation
 

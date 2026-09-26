@@ -30,7 +30,7 @@ The canonical app is a **Flask application** (`system_manager/`) that mounts fea
    /etc/...     os.statvfs       (host binaries via mounts)
 ```
 
-> **Standalone panel** — `server.py` is still a complete stdlib-only HTTP server (`ThreadingHTTPServer`) serving its own embedded `index.html`; it runs the interactive connectivity diagnostics, access-code auth, actions, and audit that the Flask port currently routes through `system_manager/auth.py`. The two share the `server.py` collectors. Dashboard is the Flask app; the standalone panel remains for the connectivity checker not yet exposed under Flask.
+> **Standalone panel** — `server.py` is still a complete stdlib-only HTTP server (`ThreadingHTTPServer`) serving its own embedded `index.html`, but it is now fully superseded: connectivity diagnostics, access-code auth, actions, and audit all live in `system_manager/` (`connectivity.py`, `auth.py`), which imports `server.py` for its collectors. Dashboard is the Flask app; the standalone panel is kept only until its HTTP layer is retired.
 
 ## Core Modules
 
@@ -65,6 +65,8 @@ Only runs when `config.enabled == true`. Uses configured destination (validated 
 - **60s interval** for connectivity (independent)
 - **Stale detection**: >30s old or collection error
 - **Thread-safe** `get()` returns `{state, detail, data, connectivity, checks, explanations}`
+
+> `SnapshotCache` is the standalone panel's store. Under Flask, the 60s connectivity cache lives in `system_manager/connectivity.py:ConnectivityStore` (same lock + staleness rules), while `status.collect()` stays a thin uncached collector; the two share `server.py`'s `connectivity_checks()`/`connectivity_diagnosis()`.
 
 ### `ActionAudit` — SQLite Logging
 ```sql
@@ -172,7 +174,7 @@ index.html (served by /)
 | Contract | Fixtures + mocks | Malformed input, timeouts, permission errors, unavailable sensors |
 | Smoke | Manual / browser | Full UI flow, container mounts, real system data |
 
-Run: `python3 -m unittest discover -s tests -v` (37 tests, ~3s)
+Run: `python3 -m unittest discover -s tests -v` (57 tests, ~4s)
 Test modules: `test_server.py` (collectors/cache/HTTP on the standalone panel), `test_flask_app.py` (Flask auth + approval flow), `test_inventory.py` (store + API).
 
 ## Extensibility Points

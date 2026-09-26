@@ -340,6 +340,24 @@ def _authorize():
     return jsonify({"error": "Unlock this dashboard with the local access code."}), 401
 
 
+def requires_session_view():
+    """Gate a module blueprint when auth is on.
+
+    Browser navigations are redirected to the dashboard, which hosts the unlock
+    form; fetch/JSON callers get a 401 so the client can report the error.
+    Scope this to a blueprint rather than the app so the dashboard, login, and
+    static assets stay reachable and the unlock form is never gated itself.
+    """
+    if auth_disabled():
+        return None
+    if require_session() is not None:
+        return None
+    if "application/json" in (request.headers.get("Accept") or ""):
+        return _authorize()
+    from flask import redirect, url_for
+    return redirect(url_for("index"))
+
+
 AUTH_PREFIX = "/api"
 
 
@@ -388,10 +406,6 @@ def auth_blueprint():
             return _authorize()
         current = current_app.config.get("AUDIT")
         return jsonify({"actions": current.recent() if current is not None else []})
-
-    @bp.post("/connectivity")
-    def connectivity_update():
-        return jsonify({"error": "Connectivity configuration is not yet exposed in Flask."}), 501
 
     @bp.post("/approve")
     def approve():

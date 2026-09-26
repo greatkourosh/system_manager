@@ -67,6 +67,7 @@
         }).join("");
       box.innerHTML = rows || '<span class="muted">no UP interfaces</span>';
     }
+    renderConnectivity(data);
 
     // Advisories
     const suggs = d.suggestions || [];
@@ -102,6 +103,87 @@
   }
   setInterval(poll, 10000);
   poll();
+
+  // connectivity diagnostics: status line, per-check table, explanations, consent form
+  const CHECK_LABELS = {
+    gateway: "Default gateway",
+    gateway_reachable: "Gateway reachable",
+    dns_configured: "Configured DNS servers",
+    dns_reachable: "DNS server reachable",
+    dns_resolution: "Endpoint name resolution",
+    https: "TLS connection to endpoint",
+  };
+  const checkText = reading => {
+    if (reading?.state !== "observed") return reading?.detail || "unavailable";
+    const v = reading.value;
+    if (typeof v === "string") return v;
+    if (Array.isArray(v)) return v.join(", ") || "None";
+    if (v.host) return `Reached ${v.host}${v.peer?.length ? " (certificate presented)" : ""}`;
+    if (v.value) return `${v.value}${v.device ? ` on ${v.device}` : ""}`;
+    if (v.addresses) return v.addresses.join(", ");
+    return JSON.stringify(v);
+  };
+
+  function renderConnectivity(data) {
+    const settings = data.connectivity || { enabled: false, endpoints: ["https://example.com/"] };
+    const checks = data.checks || {};
+    const statusLine = document.getElementById("connStatus");
+    if (!statusLine) return;
+
+    let status = "not tested";
+    if (settings.enabled) {
+      const reachable = ["gateway_reachable", "dns_reachable", "https"]
+        .filter(k => checks[k]?.state === "observed");
+      if (checks.https?.state === "observed") status = "reachable";
+      else if (checks.dns_resolution?.state === "unavailable") status = "name resolution failing";
+      else if (reachable.length) status = "partial connectivity";
+      else if (Object.keys(checks).length) status = "not verified";
+    }
+    statusLine.textContent = `Internet: ${status}.`;
+    statusLine.className = `conn-status ${status === "reachable" ? "ok" : ""}`;
+
+    const table = document.getElementById("connChecks");
+    const rows = Object.entries(CHECK_LABELS)
+      .filter(([key]) => key in checks)
+      .map(([key, label]) => {
+        const state = checks[key]?.state;
+        return `<tr><th>${esc(label)}</th><td class="${state === "observed" ? "ok" : ""}">${esc(checkText(checks[key]))}</td></tr>`;
+      }).join("");
+    table.querySelector("tbody").innerHTML = rows;
+    table.hidden = !rows;
+
+    const explain = document.getElementById("connExplain");
+    const lines = data.explanations?.length ? data.explanations
+      : ["Outbound checks are off. Enable them to test the gateway, DNS, and an approved endpoint."];
+    explain.innerHTML = lines.map(t => `<p>${esc(t)}</p>`).join("");
+
+    const input = document.getElementById("connEndpoint");
+    if (document.activeElement !== input) input.value = settings.endpoints?.[0] || "https://example.com/";
+    document.getElementById("connEnable").disabled = settings.enabled;
+    document.getElementById("connDisable").disabled = !settings.enabled;
+  }
+
+  async function saveConnectivity(enabled) {
+    const input = document.getElementById("connEndpoint");
+    const errorBox = document.getElementById("connError");
+    errorBox.textContent = "";
+    // Disabling must not depend on the box holding a valid address: the point
+    // of the button is to stop probing even when the field was left in a bad state.
+    const body = enabled ? { enabled: true, endpoints: [input.value.trim()] } : { enabled: false };
+    try {
+      const res = await fetch("/api/connectivity", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) { errorBox.textContent = data.error || "Could not change check settings."; return; }
+      await poll();
+    } catch (e) { errorBox.textContent = "Could not reach the server to change check settings."; }
+  }
+
+  document.getElementById("connEnable")?.addEventListener("click", () => saveConnectivity(true));
+  document.getElementById("connDisable")?.addEventListener("click", () => saveConnectivity(false));
+  document.getElementById("connForm")?.addEventListener("submit", e => e.preventDefault());
 
   // unlock (when auth is enabled)
   const lockForm = document.getElementById("lockForm");
