@@ -65,6 +65,7 @@ running on an isolated network.
 | `/var/run/dbus` | `/var/run/dbus` | ro | Yes (NM, systemd) — see the note below |
 | `/sys/class/dmi` | `/sys/class/dmi` | ro | Yes (hardware IDs) |
 | `./data` | `/data` | rw | Yes (access code, audit + inventory DBs) |
+| `../folder_organizer` | `/folder_organizer` | rw | Only for the Folder Organizer module |
 
 ### Capabilities
 | Capability | Purpose |

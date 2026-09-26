@@ -15,6 +15,12 @@ services:
       # line to store them somewhere else; the container needs it to be writable
       # or no one can log in.
       - ./data:/data
+      # The Folder Organizer module runs in-process from its own checkout, which
+      # is never copied into the image. This is the sibling project the loader
+      # already looks for, so a relative path keeps the two in step. Mounted rw
+      # because the app writes proposals, tag plans and exports into its own
+      # data/ and commands_to_run/ -- it only ever reads the media library.
+      - ../folder_organizer:/folder_organizer
     environment:
       # Auth is on unless a local .env explicitly opts out. Compose reads .env
       # from this directory for interpolation, so dropping DISABLE_AUTH=1 in
