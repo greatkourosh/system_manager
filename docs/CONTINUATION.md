@@ -200,7 +200,7 @@ Run `./scripts/sync-to-obsidian.sh` (to be created) to export docs.
 
 ## Git Status
 
-Clean through `ac47c92` ("Port actions, approval, audit, and auth from server.py to Flask"). The remainder of Milestone 5 — the connectivity port (`system_manager/connectivity.py`, the Network card UI, API docs) and the app-wide lock (`auth.requires_session_view` on the inventory/organizer blueprints) — is the current uncommitted change: 3 new files plus edits to 9, with 57 tests passing.
+Clean through `d1ac423` ("Port connectivity diagnostics and lock the module blueprints"), which completes Milestone 5: the connectivity port (`system_manager/connectivity.py`, the Network card UI, API docs) and the app-wide lock (`auth.requires_session_view` on the inventory/organizer blueprints). 57 tests pass. Nothing is uncommitted.
 
 > `core.filemode` is set to `false` on this clone, so the older repo-wide `100644 → 100755` mode flips no longer appear in diffs.
 
@@ -211,6 +211,6 @@ Clean through `ac47c92` ("Port actions, approval, audit, and auth from server.py
 - ~~Review + commit the Flask port~~ — done in `ac47c92`
 - ~~Wire the connectivity diagnostics into the Flask dashboard~~ — done, see Milestone 5
 - ~~Enforce login redirect / lock the whole app when auth is on~~ — done; see `tests/test_lock.py`
-- **Commit the Milestone 5 remainder** (connectivity port + lock) — everything is green, only the commit is outstanding
+- ~~Commit the Milestone 5 remainder~~ (connectivity port + lock) — done in `d1ac423`
 - Decide: retire `server.py`'s standalone panel now that Flask covers all of it, or keep it as a thin wrapper over `system_manager`
 - Package & update management (#2) is the highest-value next feature
