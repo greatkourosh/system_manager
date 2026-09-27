@@ -117,6 +117,29 @@ class OrganizerUrlRewriteTests(unittest.TestCase):
             _rewrite_absolute_urls(b'<a href="https://cdn.example/x.css">x</a>'),
             b'<a href="https://cdn.example/x.css">x</a>')
 
+    def test_helper_wrapping_a_helper_is_prefixed(self):
+        """A wrapper around fetch() used to be missed by a fixed list of callee
+        names, which left the ＋sub button posting to the host app's root and
+        404ing. Any identifier called with an absolute path has to be rewritten.
+        """
+        self.assertIn(b"subPost('/organizer/api/subtitles/queue'",
+                      _rewrite_absolute_urls(
+                          b"subPost('/api/subtitles/queue', {card_ids: [id]})"))
+
+    def test_bare_root_url_is_not_doubled(self):
+        self.assertEqual(_rewrite_absolute_urls(b"fetch('/organizer')"),
+                         b"fetch('/organizer')")
+
+    def test_protocol_relative_url_is_left_alone(self):
+        self.assertEqual(_rewrite_absolute_urls(b"fetch('//cdn.example/x.js')"),
+                         b"fetch('//cdn.example/x.js')")
+
+    def test_path_not_passed_to_a_call_is_left_alone(self):
+        """Card titles and dirs are absolute Windows paths; only a literal handed
+        to a function is a route."""
+        self.assertEqual(_rewrite_absolute_urls(b'const p = "/not/a/call";'),
+                         b'const p = "/not/a/call";')
+
 
 class AuthDisabledTests(unittest.TestCase):
     def test_modules_stay_open_when_auth_is_disabled(self):

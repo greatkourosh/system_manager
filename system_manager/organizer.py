@@ -107,13 +107,21 @@ def is_available():
 
 
 _HREF_RE = re.compile(rb'(href|action|src)="(/[^"]*)"', re.IGNORECASE)
-# The organizer's templates hardcode fetch('/api/...') and call a local
-# post('/api/...') helper from inline scripts, and open('/cleanup') in a link.
-# Those bypass the href/src rewrite above and would hit the host app's root
-# instead of the mounted module, so rewrite the string literal at those call
-# sites. The module's checkout is never modified, so the proxy has to do this.
+# The organizer's templates hardcode URLs in string literals: fetch('/api/...')
+# and the local post('/api/...') helper in inline scripts, open('/cleanup') in a
+# link, and subPost('/api/subtitles/queue') in videos.html. Those bypass the
+# href/src rewrite above and would hit the host app's root instead of the
+# mounted module, so rewrite the string literal at those call sites. The
+# module's checkout is never modified, so the proxy has to do this.
+#
+# Match *any* identifier called with a quoted absolute path, not a fixed list of
+# names: a helper wrapping another helper (subPost -> fetch) was silently dead
+# because the wrapper's name was not in the list. Every such literal in these
+# templates is a route, and the only Jinja inside a script block is
+# {{ total_groups }}, so no rendered data path can be corrupted. The lookaheads
+# leave an already-prefixed path alone and skip protocol-relative URLs.
 _JS_CALL_RE = re.compile(
-    rb"""(\b(?:fetch|post|open)\(\s*['"])(/(?!organizer(?:/|['"]))[^'"]*)(['"])""",
+    rb"""(\b[A-Za-z_$][\w$]*\s*\(\s*['"])(/(?!/|organizer(?:/|(?=['"])))[^'"]*)(['"])""",
     re.IGNORECASE)
 
 

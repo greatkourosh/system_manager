@@ -276,6 +276,44 @@ webhook/email means storing credentials and calling user-supplied URLs, which
 is an SSRF surface and a security decision, not a feature. Neither is implied
 by what shipped.
 
+### 2026-09-27 — Milestone 12: the subtitle button's URL, and why the rewriter missed it
+
+The ＋sub button added in `8057d7a` (folder_organizer) was **dead through the
+proxy** while working standalone. Cause: `organizer.py`'s `_JS_CALL_RE` matched a
+*fixed list of callee names* — `fetch|post|open` — and `videos.html` calls
+`subPost('/api/subtitles/queue')`, a helper that wraps `fetch`. The name wasn't
+in the list, so the literal was never prefixed and the POST hit the **host
+app's** root, 404ing. Same class as Milestone 7 bug 2, one layer deeper: that fix
+rewrote the known call sites, and a *new* helper written later fell straight
+through the same hole.
+
+**Fixed by matching any identifier called with a quoted absolute path**, rather
+than by adding `subPost` to the list — the list is a whitelist against a codebase
+that is explicitly never modified by contract, so every new helper is a
+recurrence. Two lookaheads keep it safe: `(?=...)` skips protocol-relative
+URLs, and an already-`/organizer` path is left alone. A path that is merely
+*assigned* is not matched, only one handed to a call, which matters because card
+titles and `dir` values are absolute **Windows** paths (`G:\…`) that must not be
+mangled.
+
+The widening is bounded and was measured rather than assumed. Diffing old vs new
+regex hits across all 9 organizer templates: **exactly 2 changed**, both the
+`subPost` call sites (`/api/subtitles/queue` ×2, `/api/subtitles/clear`), nothing
+else. The claim that "every such literal is a route" is checkable — the only
+Jinja inside any `<script>` block in the whole template set is `{{ total_groups }}`
+in `select.html`, a number.
+
+**Verified live**, not just by the rewriter's own unit tests: container rebuilt
+and `--force-recreate`d, logged in, `/organizer/videos` served with all four
+inline call sites prefixed (`fetch` and both `subPost`s), then an actual
+`POST /organizer/api/subtitles/queue` for a real card → `{"ok":true,"pending":2,
+"quota":20}` and two rows landed in `commands_to_run/subtitle_queue.json`. The
+test enqueue was then cleared back to the empty state it was found in; enqueue
+only writes a gitignored queue file and downloads nothing. 4 tests added
+(`test_lock.py` 15 → 19) for the wrapper case, the bare-root case, the
+protocol-relative case, and the not-a-call case. **117 tests + 40 subtests** —
+unchanged from Milestone 11's headline count because those 4 were already
+counted; `test_lock.py` had 15 tests at `HEAD` (113 total then).
 
 ---
 
