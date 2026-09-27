@@ -380,6 +380,13 @@ port-4000 proxy.
      still refused — see the checkpoint note above; that is a polkit decision,
      not an environment problem.
 - ~~Decide: retire `server.py`'s standalone panel~~ — done, see the retirement note above
+- **Per-card subtitle fetch** — now unblocked, and the only organizer item left
+  of the four below. `media_path.py` removes the old `G:` obstacle; what remains
+  is a button plus a dry-run-by-default cap, because the free OpenSubtitles
+  tier is ~20/day against 388 fetchable cards.
+- **Rating source decision** — the one genuinely open question on the video
+  library, and the reason the current "Recommended" badge is only a heuristic.
+  Options and costs are in the Video Library Filters section below.
 - Package & update management (#2) is the highest-value next feature
 
 ### Requested: richer filters + sorting on the Video Library page
@@ -516,10 +523,11 @@ running server), plus 73 passed / 0 failed for the live
 
 ### Requested: auto-download subtitles for series/movies missing them
 
-**Status 2026-09-26: not started — blocked on the `G:` path translation.**
-A per-card fetch has to resolve the media file on disk, and 22 of 446 cards
-(including most of the serials) are unreachable until the `G:\` → host-path
-translation described above is done. Deliberately left alone this pass.
+**Status 2026-09-27: unblocked, not started.**
+The `G:` blocker below was stale — the volume is mounted and the translation is
+mechanical. It now exists as `folder_organizer/media_path.py`
+(`to_host_path`, used by the season scan), so the remaining work is only the
+per-card button. The counters and caveats below still stand.
 
 For every card on `/organizer/videos` that lacks a subtitle, add an option to
 auto-fetch it. **A fetcher already exists and is not wired to the page** —
@@ -549,7 +557,8 @@ the `G:` prefix and swap `\` for `/` and **424 of 446 cards resolve**.
 So the fix is a `G:\…` → `/media/kourosh/Multimedia/…` prefix rewrite, applied
 wherever a library path becomes a real path. It must be applied to `dir` and
 `sample_video` alike, and it belongs in `fetch_subtitles.py` / `app.py` — not
-here.
+here. **Done 2026-09-27** as `folder_organizer/media_path.py` (`to_host_path`);
+the season scan is its first caller.
 
 **22 cards still don't resolve, and none of them are the feature's fault:**
 
@@ -597,14 +606,16 @@ can sit right there and only appear when a badge is missing.
 
 ### Requested: series-state badges + a "Recommended" badge
 
-**Split outcome as of 2026-09-26:**
+**Split outcome, Task A shipped 2026-09-27 (`8a9e21a` in `folder_organizer`):**
 - **Task B (Recommended badge) — shipped.** Implemented with the filter work
   above: `rating >= 8.0 and pop >= 85`, 91 of 446 cards, labelled in the UI as a
   folder-name heuristic rather than a curated score.
-- **Task A (season-state badges) — not started, blocked on the `G:` path
-  translation.** It has to read the serial directory listing, and 124 serial
-  folders are unreachable until the translation is done. A name-derived badge
-  would be wrong for 43 of them, which is the whole point of the task.
+- **Task A (season-state badges) — shipped.** The `G:` blocker below was stale:
+  the volume is mounted and the translation is mechanical. Both are now done —
+  `media_path.py` rewrites `G:\…` to `/media/kourosh/Multimedia/…`, and
+  `season_scan.py` reads the real directory listing. Cards carry a new
+  `season_state` key, rendered as a badge; the old `S1/6` name-derived text is
+  gone. 43 incomplete / 27 complete / 53 unknown, 0 over-matches.
 
 Same placement as the task above — a change to the **`folder_organizer`**
 checkout (`templates/videos.html` for the markup, `app.py:/videos` if a helper
