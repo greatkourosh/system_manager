@@ -10,6 +10,12 @@ services:
     # The access code under ./data is chmod 0600 by the app itself, so it is
     # still only readable by this uid.
     user: "${UID:-1000}:${GID:-1000}"
+    # The host's journal files are root:systemd-journal with an ACL granting the
+    # `adm` group; without this the Logs module cannot read them at all. The
+    # host user is already in adm, so this grants the container the same read
+    # the invoking user already has. gid 4 is adm on Debian/Ubuntu.
+    group_add:
+      - "4"
     pid: host
     # docker-default's D-Bus rule denies nmcli's system-bus handshake with
     # "An AppArmor policy prevents this sender from sending this message", so
@@ -33,6 +39,10 @@ services:
       # commands to run rather than running them.
       - /var/lib/dpkg:/host/var/lib/dpkg:ro
       - /var/lib/apt/lists:/host/var/lib/apt/lists:ro
+      # The host's journal, for the read-only Logs module. journalctl has to be
+      # pointed at it with --root: the container's own journal is empty and its
+      # machine-id is the image's, so a bare journalctl reads the wrong thing.
+      - /var/log/journal:/host/var/log/journal:ro
       # Holds the access code and the audit/inventory databases. Override this
       # line to store them somewhere else; the container needs it to be writable
       # or no one can log in.

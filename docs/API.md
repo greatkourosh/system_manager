@@ -6,14 +6,14 @@ Base URL: `http://localhost:4000/` (container, gunicorn) or `http://127.0.0.1:82
 
 All API endpoints except `/`, `/api/login`, `/api/logout` require a valid session cookie when auth is enabled.
 
-The module blueprints (`/inventory/*`, `/organizer/*`, `/packages/*`) enforce the same rule through a shared `before_request` hook. A locked request is answered according to the caller's `Accept` header:
+The module blueprints (`/inventory/*`, `/organizer/*`, `/packages/*`, `/logs/*`) enforce the same rule through a shared `before_request` hook. A locked request is answered according to the caller's `Accept` header:
 
 | Caller | Response |
 |--------|----------|
 | Browser navigation (`Accept: text/html`) | `302` redirect to `/`, which hosts the unlock form |
 | Fetch/JSON (`Accept: application/json`) | `401` with `{"error": "Unlock this dashboard with the local access code."}` |
 
-This covers the inventory CRUD, builds, topology, export/import, and qr routes, the `/packages` page, as well as every organizer route, including its POST forms for file operations. The dashboard (`/`), `/health`, and static assets are never gated.
+This covers the inventory CRUD, builds, topology, export/import, and qr routes, the `/packages` and `/logs` pages, as well as every organizer route, including its POST forms for file operations. The dashboard (`/`), `/health`, and static assets are never gated.
 
 ### Headers Required
 ```
@@ -353,6 +353,67 @@ mount is the single likeliest cause, so the failure names itself and its fix.
 > versions, so "nothing to upgrade" may just mean "we have not looked". The page
 > warns when this is so. Parsing is ~2.5 s against 274 MB of indexes and runs on
 > every request.
+
+### `GET /logs/`
+**Auth required.** The host's journal entries, as HTML, or as JSON with
+`Accept: application/json`. `?export=json` returns the same entries as a
+download.
+
+**Query parameters:** `priority` (a syslog name: `emerg alert crit err warning
+notice info debug`), `unit`, `since` (any timestamp `journalctl` accepts, e.g.
+`-24h`, `today`, `07:00`), `boot` (an index from the boot dropdown, or `all`),
+`limit` (1–2000, default 200).
+
+**Nothing is written and nothing is approved.** The module only runs
+`journalctl` queries — no vacuum, no rotation — so `auth.Approval` is
+deliberately unused.
+
+**Response:**
+```json
+{
+  "ok": true,
+  "entries": [
+    {"timestamp": 1790535294.550406, "time_text": "2026-09-27 20:19:43",
+     "priority": "info", "unit": "docker.service", "identifier": "dockerd",
+     "pid": "2218", "hostname": "kourosh-pc", "message": "…"}
+  ],
+  "count": 200, "error_count": 3,
+  "applied": ["priority=err", "unit=sshd.service", "limit=200"],
+  "rejected": [], "detail": "",
+  "journal_dir": "/host/var/log/journal",
+  "priorities": ["emerg", "…"], "max_limit": 2000
+}
+```
+
+Entries are newest first. `error_count` counts priorities 3 and above.
+
+**A refused filter appears in `rejected` and on the page** rather than being
+dropped — a silently ignored `priority` would leave the user reading a query
+they never asked for. `priority` is checked against the syslog set, `boot`
+against an index or `all`, and `since` against a conservative charset. Values
+are passed as **paired argv** (`--priority err`, not `--priority=err`), which is
+what keeps a value from becoming its own option.
+
+**`--root` takes a filesystem root, not the journal directory.** It is passed
+`/host`, and `<JOURNAL_HOST_DIR>/var/log/journal` is what gets checked for
+existence. Passing the journal directory itself makes journalctl look one level
+too deep, print "No journal files were found", and **exit 0**.
+
+**When the mount is missing, `ok` is `false`, not an empty list:**
+```json
+{"ok": false, "mount_error": true,
+ "detail": "The host journal is not mounted… - /var/log/journal:/host/var/log/journal:ro",
+ "journal_dir": "/host/var/log/journal"}
+```
+`journalctl` exits 0 for a good read, an empty result, and an unreadable
+journal alike, so the mount is checked *before* querying. A blank page would
+otherwise be indistinguishable from a quiet host.
+
+> Reading the journal also requires the container process to be in group `adm`
+> (gid 4) — the files are `root:systemd-journal` with an ACL granting `adm`. The
+> shipped `docker-compose.yml` sets `group_add: ["4"]`; without it every read is
+> `Permission denied`, which surfaces as the mount error above rather than as
+> an empty log.
 
 ---
 

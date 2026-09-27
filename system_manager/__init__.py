@@ -10,6 +10,7 @@ from .connectivity import ConnectivityStore, connectivity_blueprint
 from .notifier import Notifier, start_notifier
 from .organizer import ORGANIZER_PATH, is_available, organizer_blueprint
 from .inventory import inventory_blueprint, is_available as inventory_available
+from .journal import journal_blueprint, is_available as journal_available
 from .packages import packages_blueprint, is_available as packages_available
 
 __all__ = ["create_app"]
@@ -48,6 +49,7 @@ def create_app(config=None):
     app.register_blueprint(organizer_blueprint())
     app.register_blueprint(inventory_blueprint())
     app.register_blueprint(packages_blueprint())
+    app.register_blueprint(journal_blueprint())
 
     @app.context_processor
     def inject_modules():
@@ -138,5 +140,14 @@ def modules():
             "url": "packages.packages_api.list_packages",
             "available": packages_available(),
             "tags": ["apt", "updates", "security"],
+        },
+        {
+            "id": "journal",
+            "name": "Logs",
+            "summary": "Search the host's journal by priority, unit and time.",
+            "path": "logs",
+            "url": "journal.journal_api.list_entries",
+            "available": journal_available(),
+            "tags": ["journal", "logs", "systemd"],
         },
     ]

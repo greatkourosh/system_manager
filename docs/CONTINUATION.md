@@ -315,6 +315,73 @@ protocol-relative case, and the not-a-call case. **117 tests + 40 subtests** —
 unchanged from Milestone 11's headline count because those 4 were already
 counted; `test_lock.py` had 15 tests at `HEAD` (113 total then).
 
+### 2026-09-27 — Log Analysis & Journal (Milestone 13)
+
+Future Work #3, in its read-only half. `/logs` queries the host's journal
+through `journalctl --root` and renders the entries, filterable by priority,
+unit, time and boot, with a JSON export of whatever is on screen. No vacuum, no
+rotation, no writes — so `auth.Approval` is deliberately unused, for the same
+reason the packages module leaves it unused.
+
+**Reading the journal needs group `adm`, and that is a real widening.** The
+journal files are `root:systemd-journal` with an ACL granting `adm`; the host
+user is in `adm` and the container was not, so the mount alone was not enough —
+`head` on a journal file inside the container returns `Permission denied` at
+`1000:1000` and succeeds at `1000:4`. `docker-compose.yml` gains
+`group_add: ["4"]` (gid 4 is adm on Debian/Ubuntu), which grants the container
+exactly the read the invoking user already has. **This is the third deliberate
+loosening in the compose file** after `apparmor=unconfined` (Milestone 8) and the
+`pid: host` that predates it; removing it makes the module silently unreadable
+rather than failing loudly, which is worth knowing before anyone trims it.
+
+**`--root` takes a filesystem root, and passing it the journal directory is a
+silent failure.** `journalctl --root /host/var/log/journal` makes it look for
+`/host/var/log/journal/var/log/journal`, prints "No journal files were found"
+and **exits 0**. The first live check returned `{"ok": true, "count": 0}` — the
+exact ambiguity the packages module was built to avoid, reproduced by the module
+written to prevent it. `--root /host` is correct; `RootTests` pins it.
+
+**The ambiguity itself is the design constraint.** journalctl exits 0 for a
+good read, an empty result, and an unreadable journal alike, so exit code cannot
+distinguish them and the mount is checked *before* querying. A missing mount
+answers with the compose line that fixes it, never an empty table.
+
+**Filter values travel as paired argv, never a joined string.** `--priority err`
+rather than `--priority=err` is what keeps a value from becoming its own
+option; journalctl escapes unit names internally as well. `priority` is
+checked against the fixed syslog set, `boot` against an index or `all`, and
+`since` against a conservative charset — a newline in any of them would break
+the command echo the page renders. A refused filter is **reported on the page**,
+not dropped: a silently ignored `priority` would leave the user looking at a
+query they never asked for.
+
+**Two live findings that only the real journal showed.** A unit-scoped query
+legitimately returns `Started <unit> - ...` rows filed under `init.scope`, so
+displaying the unit verbatim showed `init.scope` for all of them and hid what
+matched; the unit is now read out of the message for scope rows. And
+`--list-boots --output json` returns a **JSON array**, not newline-delimited
+objects, so it needs `json.loads` on the whole document.
+
+**Verified live** (image rebuilt, container recreated): 4 real entries from
+`docker.service` and `avahi-daemon.service` with correct local times;
+`priority=err` returns err/crit/alert only; `unit=systemd-resolved.service`
+returns that unit only; `priority=--output=short` is **refused and reported**,
+and `boot=--disk-usage` likewise. The page renders 200 with rows, stats, the
+filter form and the export link. The missing-mount branch was exercised by
+pointing `JOURNAL_HOST_DIR` at a nonexistent path — it names the compose line
+and explains the exit-0 trap. 145 tests + 40 subtests (28 new).
+
+**Not verified in a browser** — the preview classifier was unavailable for the
+whole session, so the layout, the priority colours and the filter controls are
+confirmed only by rendered-HTML assertions (200, 5 rows, 4 stat cards, export
+href) and the live JSON API, not by eye.
+
+**Not built: journal maintenance.** `journalctl --vacuum-time/--vacuum-size`
+and rotation are the natural next half, but they are *writes* to a 1.4 GB
+journal and would need the approve → execute → audit flow that the two
+read-only modules deliberately skip. That is the same class of decision as the
+NM checkpoint question, so it is not implied by what shipped.
+
 ---
 
 ## Architecture
@@ -332,6 +399,9 @@ run.py ── create_app() ── Flask
 │     ├── notifier.py      → Notifier, a 5-minute thread that announces each
 │     │                     new condition once via notify-send on the session bus
 │     ├── organizer.py     → proxy to folder_organizer app at /organizer
+│     ├── journal.py       → blueprint at /logs; journal_api.py queries the host
+│     │                     journal via journalctl --root /host and renders
+│     │                     entries. Read-only: never vacuums or rotates.
 │     ├── packages/        → blueprint at /packages; dpkg.py parses the host's
 │     │                     dpkg status + apt indexes (ro) and renders
 │     │                     upgrade commands. Read-only: runs nothing.
@@ -365,6 +435,7 @@ server.py (collector library, no HTTP layer)
 | POST | `/api/approve` | Yes | Issue single-use approval token |
 | POST | `/api/execute` | Yes | Execute approved action |
 | GET | `/api/audit` | Yes | Recent action log |
+| GET | `/logs/` | Yes | Journal entries, filtered by `priority`, `unit`, `since`, `boot`, `limit`; `?export=json` downloads them |
 | GET | `/api/notifications` | Yes | Currently active conditions, recently sent alerts, `last_error`, `interval` |
 | POST | `/api/notifications` | Yes | Send a fixed test notification; `503` if `notify-send` failed |
 | POST | `/api/login` | No | Exchange access code for session |
@@ -422,7 +493,7 @@ docker compose exec system-manager cat /data/access-code
 ### Tests
 ```bash
 python3 -m pytest -q
-# 117 tests + 40 subtests, ~2s
+# 145 tests + 40 subtests, ~2s
 ```
 
 ---
@@ -436,6 +507,7 @@ python3 -m pytest -q
 | `SYSTEM_MANAGER_AUTH_TOKEN_PATH` | Flask | (empty) | Writable path for the rotating access code (auth on) |
 | `INVENTORY_DB` | Flask | (tmpdir) | SQLite file for the inventory module |
 | `PACKAGES_HOST_DIR` | Flask | `/host` | Prefix for the host's dpkg status and apt lists; tests point it at a fixture |
+| `JOURNAL_HOST_DIR` | Flask | `/host` | Prefix for the host journal — `journalctl --root` is passed this, and `<dir>/var/log/journal` is what gets checked for existence |
 | `SYSTEM_MANAGER_NOTIFY` | Flask | `1` | Set `0` to stop the notification timer starting (one alert source per process) |
 
 ---
@@ -462,7 +534,12 @@ upgrade with snapshot/rollback** (btrfs/zfs/timeshift), which needs root, a
 snapshot strategy and a rollback path.
 
 ### 3. Log Analysis & Journal
-`journalctl` queries (errors, failed units, boot time); structured log viewer with filters; export.
+~~`journalctl` queries with filters and export~~ — **done, read-only**, see
+Milestone 13. `/logs` reads the host's journal with priority, unit, time and
+boot filters, and exports what is on screen.
+**Still open:** journal maintenance — `--vacuum-size`/`--vacuum-time` and
+rotation are writes to a 1.4 GB journal and would need the approve → execute →
+audit flow the two read-only modules skip.
 
 ### 4. Backup & Restore
 Config backup (etckeeper-style) for `/etc`, NetworkManager, systemd; scheduled backup to external drive/NAS; restore wizard with diff preview.
@@ -502,7 +579,7 @@ written; `scripts/` does not exist in this project.
 
 ## Git Status
 
-Clean through `888abfe` ("feat: a read-only Packages & Updates module"). Milestone 5 completed in `d1ac423`. The 2026-09-26 verification pass (Milestone 6) was documentation-only. A later pass on the same day fixed four container/host bugs — see the Milestone 7 entry, and Milestone 9 below. **117 tests + 40 subtests pass** (re-verified 2026-09-27, ~2s).
+Clean through `888abfe` ("feat: a read-only Packages & Updates module"). Milestone 5 completed in `d1ac423`. The 2026-09-26 verification pass (Milestone 6) was documentation-only. A later pass on the same day fixed four container/host bugs — see the Milestone 7 entry, and Milestone 9 below. **145 tests + 40 subtests pass** (re-verified 2026-09-27, ~2s).
 
 ### 2026-09-26 — Milestone 9: stale-claim sweep, video library, panel retirement
 

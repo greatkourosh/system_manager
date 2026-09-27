@@ -201,6 +201,24 @@ code[data-copy]:hover { text-decoration: underline dotted; }
 code[data-copy]::after { content: "click to copy"; display: block; font-size: .68rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); text-decoration: none; }
 code[data-copied]::after { content: "copied"; color: var(--accent); }
 
+/* Logs */
+.log-filters { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; margin-bottom: 18px; }
+.log-filter { display: flex; flex-direction: column; gap: 5px; }
+.log-filter label { font-size: .78rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.log-filter input, .log-filter select { background: var(--card); color: var(--fg); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; font-size: .85rem; font-family: inherit; min-width: 130px; }
+.log-filter input:focus, .log-filter select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.log-filters .btn.secondary { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+.log-table td { font-size: .8rem; }
+.log-time { white-space: nowrap; color: var(--muted); font-variant-numeric: tabular-nums; }
+.log-pid { color: var(--muted); text-align: right; }
+.log-msg { font-family: var(--font); word-break: break-word; }
+.log-pri { display: inline-block; font-size: .66rem; padding: 2px 7px; border-radius: 999px; background: var(--border); color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+/* Priorities 0-3 are the ones worth noticing, so they get colour; the rest stay neutral. */
+.log-pri-emerg, .log-pri-alert, .log-pri-crit { background: rgba(248,113,113,.2); color: var(--danger); }
+.log-pri-err { background: rgba(248,113,113,.12); color: var(--danger); }
+.log-pri-warning { background: rgba(251,191,36,.15); color: var(--warn); }
+tr.log-err td, tr.log-crit td, tr.log-alert td, tr.log-emerg td { background: rgba(248,113,113,.05); }
+
 /* Scrollbar */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }

@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %}Logs{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Logs</h1>
+  <p class="muted">
+    Read-only view of the host&rsquo;s journal. Nothing here changes it &mdash;
+    <code>journalctl --vacuum</code> and rotation stay yours to run.
+  </p>
+</div>
+
+{% if data.mount_error %}
+<div class="conn-error">
+  <strong>The host journal is not mounted.</strong>
+  <p class="conn-explain">{{ data.detail }}</p>
+  <p class="conn-explain">Add this line to <code>docker-compose.yml</code>:</p>
+  <div class="code-block"><code data-copy>  - /var/log/journal:/host/var/log/journal:ro</code></div>
+  <p class="conn-note">Then <code>docker compose up -d --force-recreate</code>.</p>
+</div>
+
+{% else %}
+<form class="log-filters" method="get" action="/logs/">
+  <div class="log-filter">
+    <label for="f-priority">Priority</label>
+    <select id="f-priority" name="priority">
+      <option value="">all</option>
+      {% for p in data.priorities %}
+      <option value="{{ p }}" {% if request.args.get('priority') == p %}selected{% endif %}>{{ p }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="log-filter">
+    <label for="f-unit">Unit</label>
+    <input id="f-unit" name="unit" type="text" placeholder="sshd.service"
+           value="{{ request.args.get('unit', '') }}">
+  </div>
+  <div class="log-filter">
+    <label for="f-since">Since</label>
+    <input id="f-since" name="since" type="text" placeholder="-24h, today, 07:00"
+           value="{{ request.args.get('since', '') }}">
+  </div>
+  <div class="log-filter">
+    <label for="f-boot">Boot</label>
+    <select id="f-boot" name="boot">
+      <option value="">current</option>
+      <option value="all" {% if request.args.get('boot') == 'all' %}selected{% endif %}>all boots</option>
+      {% for b in boots %}
+      <option value="{{ b.index }}" {% if request.args.get('boot') == b.index|string %}selected{% endif %}>
+        {{ b.index }} &middot; {{ b.boot_id }}
+      </option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="log-filter">
+    <label for="f-limit">Limit</label>
+    <input id="f-limit" name="limit" type="number" min="1" max="{{ data.max_limit }}"
+           value="{{ request.args.get('limit', 200) }}">
+  </div>
+  <button class="btn" type="submit">Apply</button>
+  <a class="btn secondary" href="/logs/?export=json{{ '&amp;priority=' ~ request.args.get('priority', '') if request.args.get('priority') }}{{ '&amp;unit=' ~ request.args.get('unit', '') if request.args.get('unit') }}{{ '&amp;since=' ~ request.args.get('since', '') if request.args.get('since') }}{{ '&amp;boot=' ~ request.args.get('boot', '') if request.args.get('boot') }}">Export JSON</a>
+</form>
+
+{% if data.rejected %}
+<div class="suggestion">
+  <div class="title">Some filters were not applied</div>
+  <div class="detail">
+    {% for r in data.rejected %}<div>{{ r }}</div>{% endfor %}
+    The query ran without them, so what you see is not what you asked for.
+  </div>
+</div>
+{% endif %}
+
+{% if data.applied %}
+<p class="conn-note">Applied: {% for a in data.applied %}<code>{{ a }}</code>{% if not loop.last %} {% endif %}{% endfor %}</p>
+{% endif %}
+
+{% if rows %}
+<div class="stats">
+  <div class="stat">
+    <div class="stat-label">Entries</div>
+    <div class="stat-value">{{ data.count }}</div>
+    <div class="stat-sub muted">newest first</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Errors</div>
+    <div class="stat-value">{{ data.error_count }}</div>
+    <div class="stat-sub muted">priority 3 and above</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Boots</div>
+    <div class="stat-value">{{ boots | length }}</div>
+    <div class="stat-sub muted">available to scope to</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Journal</div>
+    <div class="stat-value" style="font-size:.9rem;word-break:break-all">{{ data.journal_dir }}</div>
+    <div class="stat-sub muted">read-only mount</div>
+  </div>
+</div>
+
+<div class="pkg-table-wrap">
+<table class="pkg-table log-table">
+  <thead>
+    <tr><th>Time</th><th>Pri</th><th>Unit</th><th>PID</th><th>Message</th></tr>
+  </thead>
+  <tbody>
+  {% for r in rows %}
+    <tr class="log-{{ r.priority }}">
+      <td class="log-time">{{ r.time_text }}</td>
+      <td><span class="log-pri log-pri-{{ r.priority }}">{{ r.priority }}</span></td>
+      <td>{{ r.unit }}</td>
+      <td class="log-pid">{{ r.pid }}</td>
+      <td class="log-msg">{{ r.message }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+
+{% elif data.ok %}
+<p class="muted">No journal entries match these filters.</p>
+{% endif %}
+
+{% endif %}
+{% endblock %}
