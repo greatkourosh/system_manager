@@ -280,6 +280,14 @@
     } catch (e5) { btn.textContent = original; btn.disabled = false; }
   });
 
+  // copy a command block to the clipboard
+  document.addEventListener("click", ev => {
+    const el = ev.target.closest("[data-copy]");
+    if (!el) return;
+    navigator.clipboard.writeText(el.textContent.trim()).then(
+      () => { el.dataset.copied = "1"; setTimeout(() => { delete el.dataset.copied; }, 1200); });
+  });
+
   // theme toggle
   const root = document.documentElement;
   const btn = document.getElementById("themeToggle");

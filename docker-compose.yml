@@ -26,6 +26,13 @@ services:
       - /run/user:/run/user:ro
       - /var/run/dbus:/var/run/dbus:ro
       - /sys/class/dmi:/sys/class/dmi:ro
+      # The host's package database and apt indexes, for the read-only
+      # Packages module. The container's own dpkg database is the image's ~140
+      # packages, not the host's ~2700, so the host's is what has to be read.
+      # Both are ro: the module only ever parses them, and it renders the
+      # commands to run rather than running them.
+      - /var/lib/dpkg:/host/var/lib/dpkg:ro
+      - /var/lib/apt/lists:/host/var/lib/apt/lists:ro
       # Holds the access code and the audit/inventory databases. Override this
       # line to store them somewhere else; the container needs it to be writable
       # or no one can log in.

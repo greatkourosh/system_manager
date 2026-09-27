@@ -9,6 +9,7 @@ from . import auth, status
 from .connectivity import ConnectivityStore, connectivity_blueprint
 from .organizer import ORGANIZER_PATH, is_available, organizer_blueprint
 from .inventory import inventory_blueprint, is_available as inventory_available
+from .packages import packages_blueprint, is_available as packages_available
 
 __all__ = ["create_app"]
 
@@ -40,6 +41,7 @@ def create_app(config=None):
     app.register_blueprint(connectivity_blueprint())
     app.register_blueprint(organizer_blueprint())
     app.register_blueprint(inventory_blueprint())
+    app.register_blueprint(packages_blueprint())
 
     @app.context_processor
     def inject_modules():
@@ -106,5 +108,14 @@ def modules():
             "url": "inventory.inventory_api.dashboard",
             "available": inventory_available(),
             "tags": ["hardware", "network", "assets"],
+        },
+        {
+            "id": "packages",
+            "name": "Packages & Updates",
+            "summary": "See what an apt upgrade would change, before running it.",
+            "path": "packages",
+            "url": "packages.packages_api.list_packages",
+            "available": packages_available(),
+            "tags": ["apt", "updates", "security"],
         },
     ]

@@ -185,6 +185,22 @@ main { padding: 32px 28px 64px; max-width: 1280px; margin: 0 auto; }
 .code-block { background: #0b0d12; border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; overflow: auto; }
 .code-block code { font-size: .75rem; line-height: 1.6; color: #c9d1d9; }
 
+/* Packages & updates */
+.pkg-commands { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; margin-bottom: 18px; }
+.pkg-command label { display: block; font-size: .78rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 6px; }
+.pkg-table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); }
+.pkg-table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+.pkg-table th { text-align: left; padding: 10px 14px; color: var(--muted); font-weight: 500; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.pkg-table td { padding: 9px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.pkg-table tr:last-child td { border-bottom: none; }
+.pkg-name { font-weight: 600; }
+.pkg-flag { display: inline-block; font-size: .68rem; padding: 2px 8px; border-radius: 999px; background: var(--accent-dim); color: var(--accent); font-weight: 500; white-space: nowrap; }
+.pkg-flag.sec { background: rgba(248,113,113,.15); color: var(--danger); }
+code[data-copy] { cursor: pointer; position: relative; }
+code[data-copy]:hover { text-decoration: underline dotted; }
+code[data-copy]::after { content: "click to copy"; display: block; font-size: .68rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); text-decoration: none; }
+code[data-copied]::after { content: "copied"; color: var(--accent); }
+
 /* Scrollbar */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }

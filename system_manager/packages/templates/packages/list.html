@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block title %}Packages &amp; Updates{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Packages &amp; Updates</h1>
+  <p class="muted">
+    Read-only view of the host&rsquo;s package database. Nothing here runs &mdash;
+    the commands below are for you to copy and run yourself.
+  </p>
+</div>
+
+{% if not snapshot.ok %}
+<div class="conn-error">
+  <strong>The host package database is not reachable.</strong>
+  <p class="conn-explain">{{ snapshot.detail }}</p>
+  <p class="conn-explain">These mounts must exist in <code>docker-compose.yml</code>:</p>
+  <div class="code-block"><code>{% for m in snapshot.mounts %}{{ m }}
+{% endfor %}</code></div>
+  <p class="conn-note">Then <code>docker compose up -d --force-recreate</code>.</p>
+</div>
+
+{% else %}
+
+{% set idx = snapshot.index %}
+{% if idx %}
+  {% set age_days = ((now - idx.newest) / 86400) | round(0, 'floor') | int %}
+  {% if age_days > stale_days %}
+  <div class="suggestion">
+    <div class="title">These indexes are {{ age_days }} days old</div>
+    <div class="detail">
+      Anything published since the last <code>apt-get update</code> on the host is
+      missing from this list. Run <code>sudo apt-get update</code>, then reload.
+    </div>
+  </div>
+  {% endif %}
+{% endif %}
+
+<div class="stats">
+  <div class="stat">
+    <div class="stat-label">Upgradable</div>
+    <div class="stat-value">{{ rows | length }}</div>
+    <div class="stat-sub muted">of {{ snapshot.suites | length }} suites &middot; {{ snapshot.arches | join(', ') }}</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Security</div>
+    <div class="stat-value">{{ snapshot.security_count }}</div>
+    <div class="stat-sub muted">from <code>-security</code> suites</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Phased</div>
+    <div class="stat-value">{{ snapshot.phased_count }}</div>
+    <div class="stat-sub muted">rolled out to a percentage of hosts</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Backports</div>
+    <div class="stat-value">{{ backports | length }}</div>
+    <div class="stat-sub muted">skipped by <code>apt-get upgrade</code></div>
+  </div>
+</div>
+
+{% if rows %}
+<h2 class="sub-head">Available updates</h2>
+<div class="pkg-commands">
+  <div class="pkg-command">
+    <label>Preview (changes nothing)</label>
+    <div class="code-block"><code data-copy>{{ dry_run }}</code></div>
+  </div>
+  <div class="pkg-command">
+    <label>Apply &mdash; read the preview first</label>
+    <div class="code-block"><code data-copy>{{ command }}</code></div>
+  </div>
+</div>
+
+<div class="pkg-table-wrap">
+<table class="pkg-table">
+  <thead>
+    <tr>
+      <th>Package</th><th>Installed</th><th>Candidate</th><th>Suite</th><th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for r in rows %}
+    <tr>
+      <td class="pkg-name">{{ r.name }}</td>
+      <td><code>{{ r.installed }}</code></td>
+      <td><code>{{ r.candidate }}</code></td>
+      <td>{{ r.suite }}</td>
+      <td>
+        {% if r.security %}<span class="pkg-flag sec" title="Comes from a -security suite">security</span>{% endif %}
+        {% if r.phased %}<span class="pkg-flag" title="Ubuntu is rolling this out to {{ r.phased }}% of hosts; apt decides per machine whether to offer it">phased {{ r.phased }}%</span>{% endif %}
+        {% if not r.security and not r.phased %}&mdash;{% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+
+<p class="conn-note">
+  Phased updates are listed even when <code>apt-get upgrade</code> holds them back:
+  Ubuntu decides per host, and that decision is not readable from any file here.
+  On this host {{ snapshot.phased_count }} of these carry a rollout percentage, and
+  apt may offer a different subset on another machine.
+</p>
+{% else %}
+<p class="muted">No package has a newer version in the host&rsquo;s apt indexes.</p>
+{% endif %}
+
+{% if backports %}
+<h2 class="sub-head">Backports (not upgraded by <code>apt-get upgrade</code>)</h2>
+<p class="conn-note">
+  These are newer than what is installed, but sit in <code>-backports</code>,
+  which apt leaves alone unless you ask for the package by name.
+</p>
+<div class="pkg-commands">
+  <div class="pkg-command">
+    <label>Preview (changes nothing)</label>
+    <div class="code-block"><code data-copy>{{ backports_dry_run }}</code></div>
+  </div>
+</div>
+<div class="pkg-table-wrap">
+<table class="pkg-table">
+  <thead><tr><th>Package</th><th>Installed</th><th>Backport</th></tr></thead>
+  <tbody>
+  {% for r in backports %}
+    <tr>
+      <td class="pkg-name">{{ r.name }}</td>
+      <td><code>{{ r.installed }}</code></td>
+      <td><code>{{ r.candidate }}</code></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+
+{% endif %}
+{% endblock %}
