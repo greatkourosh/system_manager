@@ -380,13 +380,15 @@ port-4000 proxy.
      still refused — see the checkpoint note above; that is a polkit decision,
      not an environment problem.
 - ~~Decide: retire `server.py`'s standalone panel~~ — done, see the retirement note above
-- **Per-card subtitle fetch** — now unblocked, and the only organizer item left
-  of the four below. `media_path.py` removes the old `G:` obstacle; what remains
-  is a button plus a dry-run-by-default cap, because the free OpenSubtitles
-  tier is ~20/day against 388 fetchable cards.
-- **Rating source decision** — the one genuinely open question on the video
-  library, and the reason the current "Recommended" badge is only a heuristic.
-  Options and costs are in the Video Library Filters section below.
+- ~~Per-card subtitle fetch~~ — **done 2026-09-27**, `8057d7a` + `c5e40d5` in
+  `folder_organizer`. The ＋sub button only *enqueues* into
+  `commands_to_run/subtitle_queue.json`; `subtitle_runner.py` drains it on the
+  host, because the container has no media mount and no OpenSubtitles
+  credentials. Dry-run unless `--apply`, capped at the 20/day free tier.
+- ~~Rating source decision~~ — **decided and shipped 2026-09-27**, `8eafab2`.
+  TMDB, not Rotten Tomatoes: `TMDB_API_KEY` was already in `.env` and
+  `tmdb_client.py` had already matched 455/455 cards, so the provider choice
+  was never really open — only the scope was. See the rating section below.
 - Package & update management (#2) is the highest-value next feature
 
 ### Requested: richer filters + sorting on the Video Library page
@@ -410,10 +412,17 @@ so sorting has to be applied before the page slice to stay stable across pages.
 | Field | Populated | Type | Notes |
 |-------|-----------|------|-------|
 | `year` | 286/446 (64%) | **str** | Range 1939–2025 |
-| `rating` | 388/446 (87%) | **str** | Range 4.8–9.3, every value matches `\d\.\d` |
+| `rating` | 388/446 (87%) | **str** | Range 4.8–9.3, every value matches `\d\.\d` — folder-name scrape, superseded by TMDB |
 | `pop` | 385/446 (86%) | **str** | Range 30–100 |
 | `genres` | 396/446 (89%) | str | Comma-separated, multi-valued |
 | `title` | 446/446 | str | |
+
+**Ratings now live in a sidecar, not in these cards.** `data/ratings_state.json`
+is a `{card_id: {status, rating, votes, exact, tmdb_title, checked}}` map
+written by `tmdb_ratings.py`; `app.py` reads it via `load_ratings()` and prefers
+it over the scrape above. 413/446 scored as of 2026-09-27. It is deliberately
+*not* merged into `video_library.json`, which `video_catalog.py build()`
+rewrites from scratch.
 
 Card keys are exactly: `dir, exts, folder, genres, has_en_sub, has_fa_sub, id,
 kind, limited, pop, poster, poster_id, rating, root, sample_video, season,
@@ -445,7 +454,8 @@ seasons, sub_count, title, total_bytes, video_count, year`.
 2. **Rating (IMDb-style)** — the folder name carries a `\d\.\d` token, and the
    scanner labels it `rating`. It is *not* sourced from IMDb — nothing in
    `folder_organizer` references imdb. Minimum-rating slider or bucketed select
-   (e.g. ≥9, ≥8, ≥7, ≥6).
+   (e.g. ≥9, ≥8, ≥7, ≥6). **Shipped 2026-09-27**; the filter and both rating
+   sorts now read TMDB's score first and fall back to this scrape.
 3. **Kind** — `movie` (322) vs `serial` (124), currently only reachable indirectly
    via `root`.
 4. **Size / episode count** — `total_bytes` and `video_count` are numeric-typed
@@ -480,6 +490,10 @@ is legitimately 0 results. The unknown-year option is labelled "No year in
 name (all serials)" and the note under the filter bar says so, rather than
 leaving a user to conclude the filter is broken.
 
+**Rating source: decided, TMDB, shipped 2026-09-27** (`8eafab2` in
+`folder_organizer`). The note below is what the question *was*; kept because
+the reasoning is what settled it.
+
 **Rotten Tomatoes is not available.** There is no RT field in
 `video_library.json` and nothing in the codebase fetches one; the `tomato` grep
 hits in `data/*.json` are folder names ("Tomatons"). `tmdb_client.py` already
@@ -491,6 +505,38 @@ before promising a score, and write it back into `video_library.json` via the
 existing poster-cache pattern (`tmdb_client.py` → `data/posters_state.json`)
 rather than calling out to the network on page render. If neither is wanted,
 ship 1–5 and drop the RT idea — the page is still much more useful.
+
+**What settled it.** Checking the repo answered the question before any code
+was written: `TMDB_API_KEY` was already in `.env`, `tmdb_client.py` already
+existed, and it had already matched **455/455** cards for posters. A 30-card
+sample then put the folder scrape and TMDB within **0.8** of each other (mean
+−0.04, median −0.06), which is rounding, not disagreement. So the scrape was
+never a substitute for a provider — it was TMDB's number, lossy. The real cost
+was zero and the only open question was scope.
+
+**What it changed.** `tmdb_ratings.py` (host-side; the container has no key and
+must not call out on render) caches to `data/ratings_state.json`, not into
+`video_library.json`, because `video_catalog.py build()` regenerates that file
+from scratch. Across all 446 cards: **413 scored, 33 no-result, 0 errored** — the
+proxy flaked twice mid-run, and because `error` is not cached as an answer
+those cards simply came back on the next pass. 114 of 124 serials gained a rating they
+never had — serial folder names carry no year, so the scrape had nothing to
+read. `error` is cached as "not an answer" and retried; `ok`/`no-result`/
+`no-title`/`no-score` are final and only re-queried under `--refresh`.
+
+**Two things the numbers did not predict.** TMDB runs slightly *below* the
+scrape, so `rating>=8` now reaches **72** cards, not 106 — the filter got
+stricter, which is worth knowing before someone reads the drop as a bug. And
+wrong matches exist: the Persian-titled "سارا" matches *Terminator: The Sarah
+Connor Chronicles* on 1038 votes. Among 18 fuzzy matches the 4 wrong ones had
+under 35 votes and every correct one over 200, but that separation does not
+hold generally, so the card carries a `?` flag for a non-exact title rather
+than leaning on the vote count.
+
+**Refreshing.** `python3 tmdb_ratings.py [--limit N] [--root serials]
+[--refresh]` in the `folder_organizer` checkout. It needs the proxy at
+`192.168.1.13:10810` — a full pass is ~446 requests at 0.3s, roughly four
+minutes — and takes no arguments to cover the whole library.
 
 **Committed 2026-09-26, split by concern.** The work above is `5926396` in the
 `folder_organizer` checkout. `app.py` also carried *unrelated* in-progress
