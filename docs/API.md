@@ -6,14 +6,14 @@ Base URL: `http://localhost:4000/` (container, gunicorn) or `http://127.0.0.1:82
 
 All API endpoints except `/`, `/api/login`, `/api/logout` require a valid session cookie when auth is enabled.
 
-The module blueprints (`/inventory/*`, `/organizer/*`) enforce the same rule through a shared `before_request` hook. A locked request is answered according to the caller's `Accept` header:
+The module blueprints (`/inventory/*`, `/organizer/*`, `/packages/*`) enforce the same rule through a shared `before_request` hook. A locked request is answered according to the caller's `Accept` header:
 
 | Caller | Response |
 |--------|----------|
 | Browser navigation (`Accept: text/html`) | `302` redirect to `/`, which hosts the unlock form |
 | Fetch/JSON (`Accept: application/json`) | `401` with `{"error": "Unlock this dashboard with the local access code."}` |
 
-This covers the inventory CRUD, builds, topology, export/import, and qr routes as well as every organizer route, including its POST forms for file operations. The dashboard (`/`), `/health`, and static assets are never gated.
+This covers the inventory CRUD, builds, topology, export/import, and qr routes, the `/packages` page, as well as every organizer route, including its POST forms for file operations. The dashboard (`/`), `/health`, and static assets are never gated.
 
 ### Headers Required
 ```
@@ -267,6 +267,64 @@ Audit record written automatically. On `nm_activate` failure, NM rollback attemp
 **Auth required.** Invalidate session.
 
 **Response:** 200 + `Set-Cookie: sm_session=; Max-Age=0`
+
+### `GET /packages/`
+**Auth required.** The host's upgradable package set, as HTML, or as JSON
+with `Accept: application/json`.
+
+**No apt is run and nothing is approved.** The module parses the host's
+`/var/lib/dpkg/status` and `/var/lib/apt/lists` (bind-mounted `ro` at
+`/host/…`) and renders the commands for the user to copy — `apt-get -s
+install --only-upgrade` (dry run) and `apt-get install --only-upgrade` (the
+real one), plus an equivalent pair for the backports bucket.
+
+**Response:**
+```json
+{
+  "ok": true,
+  "upgradable": [
+    {"name": "apparmor", "installed": "4.0.1…-7", "candidate": "4.0.1…-8",
+     "suite": "noble-updates", "security": false, "arch": "amd64",
+     "phased": null, "backports": false}
+  ],
+  "backports": [],
+  "security_count": 0,
+  "phased_count": 15,
+  "suites": ["noble", "noble-backports", "noble-security", "noble-updates"],
+  "arches": ["amd64"],
+  "index": {"newest": 1789766400.0, "oldest": 1789257600.0, "count": 12},
+  "command": "sudo apt-get install --only-upgrade apparmor",
+  "dry_run": "sudo apt-get -s install --only-upgrade apparmor"
+}
+```
+
+`upgradable` is sorted by name; `command`/`dry_run` name every package in it,
+and `backports_command`/`backports_dry_run` do the same for the backports
+bucket (empty strings when there are none). `status_path` and `list_dir` echo
+where the module actually looked.
+
+`phased` is Ubuntu's rollout percentage, or `null`. **apt decides per host
+whether to offer a phased version and that decision is in no file**, so this
+module reports the percentage rather than resolving it — the same index can
+yield a different answer on a different machine.
+
+**When the mounts are missing, `ok` is `false`, not an empty list:**
+```json
+{
+  "ok": false,
+  "detail": "dpkg status not readable at /host/var/lib/dpkg/status: …",
+  "status_path": "/host/var/lib/dpkg/status",
+  "list_dir": "/host/var/lib/apt/lists",
+  "mounts": ["/var/lib/dpkg -> …", "/var/lib/apt/lists -> …"]
+}
+```
+A blank page would be indistinguishable from an up-to-date host, and a missing
+mount is the single likeliest cause, so the failure names itself and its fix.
+
+> `index` older than 7 days under-reports: apt has not been told about newer
+> versions, so "nothing to upgrade" may just mean "we have not looked". The page
+> warns when this is so. Parsing is ~2.5 s against 274 MB of indexes and runs on
+> every request.
 
 ---
 

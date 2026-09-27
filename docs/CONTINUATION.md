@@ -157,6 +157,60 @@ activation without rollback. Both are security-relevant decisions, so neither
 was made here. Until then the endpoint fails closed, which is the safe side.
 
 
+### 2026-09-27 — Package & Update Management (Milestone 10)
+
+Closes Future Work #2, in its **read-only** half. The module lists what an apt
+upgrade would change and stops there: it parses the host's
+`/var/lib/dpkg/status` and `/var/lib/apt/lists` (bind-mounted `ro` at
+`/host/…`, since the container's own dpkg database is the image's ~140 packages
+rather than the host's ~2700) and renders the commands. **No apt call, no root
+helper, so there is no action to approve** — `auth.Approval` is deliberately
+unused, and the page's payload is text to copy.
+
+**apt's own answer is not reachable.** `apt-get -s upgrade` needs the lock
+files, the dpkg status database, and a config the container deliberately does
+not have. The module reproduces its *installed → candidate* comparison for the
+read-only case, with one deliberate difference: **apt applies Ubuntu's
+phased-rollout percentage per host and that decision is in no file**, so phased
+versions are reported *with* their percentage rather than resolved. On this host
+15 of 23 are phased. Backports are real updates that `apt-get upgrade`
+deliberately skips (target-release 500 vs backports 100), so they get their own
+bucket rather than being dropped.
+
+**The version comparator is the load-bearing part, and it was verified, not
+read.** Debian version order is **not a total order**: `dpkg.py` mirrors dpkg's
+own scan rather than sorting tokens, because the two scales dpkg uses are not
+comparable with each other — digit runs compare as *numbers* (so `2 < 10`), and
+everything else compares by `order()`, where `~` sorts below end-of-string and
+a non-digit run sorts above it. A token list cannot express that. Differential
+test against **libapt itself** (`apt_pkg.version_compare`): **924 120 ordered
+pairs** drawn from this host's real version set — **0 mismatches**. Re-run that
+sweep if `_cmp_part` is ever touched; a total-order model looks plausible and is
+wrong only on edge cases.
+
+**Two defects were found and fixed before committing.** `packages/__init__.py`
+carried a `snapshot()` that duplicated `api._snapshot()`, took no `_paths()`
+override (so tests could not reach it), reached into `host._suites`/`_arches`
+privates, and had no callers — deleted. And `list.html` marked four command
+blocks `data-copy` with **nothing in the codebase handling that attribute**, so
+clicking did nothing; `app.js` now copies and `app.css` gives the hover and a
+copied state.
+
+**Not verified in a browser** — the preview classifier was unavailable, so the
+copy interaction is confirmed only by `node --check` plus a rendered-page
+assertion that the targets exist.
+
+**Measured on the live host:** 23 upgradable, 1 backport, 15 phased, 6 suites,
+**2.5 s** to parse 274 MB of indexes. That parse runs on *every* page request,
+which is fine for a page you open deliberately and is the thing to cache if the
+dashboard ever links this from a polling view. 96 tests + 40 subtests.
+
+**Still deliberately absent: the upgrade itself.** "Approved batch upgrade with
+snapshot/rollback (btrfs/zfs/timeshift)" is the other half of Future Work #2 and
+is untouched — it needs root, a snapshot strategy, and a rollback path, and is
+the same class of decision as the NM checkpoint question below.
+
+
 ---
 
 ## Architecture
@@ -172,6 +226,9 @@ run.py ── create_app() ── Flask
 │     ├── connectivity.py  → ConnectivityStore, GET/POST /api/connectivity
 │     │                     gateway → DNS → HTTPS probes every 60s when enabled
 │     ├── organizer.py     → proxy to folder_organizer app at /organizer
+│     ├── packages/        → blueprint at /packages; dpkg.py parses the host's
+│     │                     dpkg status + apt indexes (ro) and renders
+│     │                     upgrade commands. Read-only: runs nothing.
 │     └── inventory/       → blueprint at /inventory; store.py (SQLite)
 │                            CRUD, filters, soft-delete, export
 ├── templates/  (base.html, index.html, modules.html)  Jinja
@@ -216,6 +273,8 @@ server.py (collector library, no HTTP layer)
 Probes contact only the approved endpoint, the default gateway, and the first configured nameserver. No scanning, and nothing runs until explicitly enabled. Each gunicorn worker keeps its own store, so with multiple workers each would scan on its own interval (the shipped Dockerfile uses `--workers 1`).
 
 Inventory module (mounted at `/inventory`): `GET/POST /inventory/items`, `GET/PATCH/DELETE /inventory/items/<id>`, `GET/POST /inventory/builds`, `GET /inventory/export?format={json,csv,yaml}`.
+
+Packages module (mounted at `/packages`): `GET /packages/` — the upgradable set with the commands to run it, as HTML, or as JSON with `Accept: application/json`. Read-only, and it runs no apt. A missing mount answers `ok: false` with the `docker-compose.yml` line to add, **never an empty list** — a blank page and an unreachable database would otherwise be indistinguishable from an up-to-date host.
 Full endpoint specs in API.md.
 
 ### Approval Flow
@@ -255,7 +314,7 @@ docker compose exec system-manager cat /data/access-code
 ### Tests
 ```bash
 python3 -m pytest -q
-# 67 tests + 40 subtests, ~2s
+# 96 tests + 40 subtests, ~2s
 ```
 
 ---
@@ -268,6 +327,7 @@ python3 -m pytest -q
 | `HOST_ROOT` | server.py | (empty) | Prefix for host paths in container (`/host`) |
 | `SYSTEM_MANAGER_AUTH_TOKEN_PATH` | Flask | (empty) | Writable path for the rotating access code (auth on) |
 | `INVENTORY_DB` | Flask | (tmpdir) | SQLite file for the inventory module |
+| `PACKAGES_HOST_DIR` | Flask | `/host` | Prefix for the host's dpkg status and apt lists; tests point it at a fixture |
 
 ---
 
@@ -277,7 +337,13 @@ python3 -m pytest -q
 Desktop notifications (libnotify) for critical diagnostics; background scheduler with configurable intervals; webhook/email alerts for warranty, disk, memory thresholds.
 
 ### 2. Package & Update Management
-List upgradable packages (`apt list --upgradable`); changelogs/security advisories; approved batch upgrade with snapshot/rollback (btrfs/zfs/timeshift).
+~~List upgradable packages~~ — **done, read-only**, see Milestone 10. The
+`/packages` module lists the host's upgradable set, phased updates and
+backports, and renders the commands without running them.
+**Still open:** changelogs / security advisories (the data is not in the apt
+indexes — it needs `apt changelog` or an advisory feed), and **approved batch
+upgrade with snapshot/rollback** (btrfs/zfs/timeshift), which needs root, a
+snapshot strategy and a rollback path.
 
 ### 3. Log Analysis & Journal
 `journalctl` queries (errors, failed units, boot time); structured log viewer with filters; export.
@@ -320,7 +386,7 @@ written; `scripts/` does not exist in this project.
 
 ## Git Status
 
-Clean through `c492da8` ("Retire the standalone panel's HTTP layer, keep the collectors"). Milestone 5 completed in `d1ac423`. The 2026-09-26 verification pass (Milestone 6) was documentation-only. A later pass on the same day fixed four container/host bugs — see the Milestone 7 entry, and Milestone 9 below. 67 tests + 40 subtests pass (re-verified 2026-09-26, ~2s).
+Clean through `888abfe` ("feat: a read-only Packages & Updates module"). Milestone 5 completed in `d1ac423`. The 2026-09-26 verification pass (Milestone 6) was documentation-only. A later pass on the same day fixed four container/host bugs — see the Milestone 7 entry, and Milestone 9 below. **96 tests + 40 subtests pass** (re-verified 2026-09-27, ~2s).
 
 ### 2026-09-26 — Milestone 9: stale-claim sweep, video library, panel retirement
 
@@ -389,7 +455,15 @@ port-4000 proxy.
   TMDB, not Rotten Tomatoes: `TMDB_API_KEY` was already in `.env` and
   `tmdb_client.py` had already matched 455/455 cards, so the provider choice
   was never really open — only the scope was. See the rating section below.
-- Package & update management (#2) is the highest-value next feature
+- **Package & update management (#2)** — the read-only half shipped
+  2026-09-27 (`888abfe`), see Milestone 10. What remains is the *upgrade*
+  itself — changelogs/advisories, and an approved batch upgrade with
+  snapshot/rollback. That needs root, a snapshot strategy and a rollback path,
+  so it is a decision, not a feature: the same class as the NM checkpoint
+  question below.
+- **Notifications & scheduling (#1)** is the next untouched item, and is where
+  the phased-update percentages and the stale-index warning would actually pay
+  off — both are only useful if something surfaces them.
 
 ### Requested: richer filters + sorting on the Video Library page
 
