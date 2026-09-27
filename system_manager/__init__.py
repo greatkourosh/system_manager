@@ -3,10 +3,11 @@ import os
 import tempfile
 from pathlib import Path
 
-from flask import Flask, current_app, jsonify, render_template
+from flask import Flask, current_app, jsonify, render_template, request
 
 from . import auth, status
 from .connectivity import ConnectivityStore, connectivity_blueprint
+from .notifier import Notifier, start_notifier
 from .organizer import ORGANIZER_PATH, is_available, organizer_blueprint
 from .inventory import inventory_blueprint, is_available as inventory_available
 from .packages import packages_blueprint, is_available as packages_available
@@ -36,6 +37,11 @@ def create_app(config=None):
     app.config["SECURITY"] = security
     app.config["AUDIT"] = auth.ActionAudit(app.config["AUDIT_PATH"])
     app.config["CONNECTIVITY"] = ConnectivityStore()
+    app.config["NOTIFIER"] = Notifier(logger=app.logger)
+    # A live timer would outlive the test that built the app; the tests
+    # exercise Notifier directly instead.
+    if not app.config.get("TESTING"):
+        start_notifier(app.config["NOTIFIER"])
 
     app.register_blueprint(auth.auth_blueprint())
     app.register_blueprint(connectivity_blueprint())
@@ -84,6 +90,21 @@ def create_app(config=None):
     @app.route("/modules")
     def modules_page():
         return render_template("modules.html", modules=modules())
+
+    @app.route("/api/notifications", methods=["GET", "POST"])
+    def api_notifications():
+        """Active conditions, recent alerts, and a manual test alert."""
+        if auth.require_session() is None:
+            return auth._authorize()
+        notifier = current_app.config["NOTIFIER"]
+        if request.method == "POST":
+            # A fixed message, never request input: nothing a caller sends
+            # reaches notify-send's argv.
+            delivered = notifier.notify({
+                "key": "test", "title": "System Manager",
+                "body": "Desktop notifications are working."})
+            return jsonify({"ok": delivered, "state": notifier.state()}), (200 if delivered else 503)
+        return jsonify(notifier.state())
 
     return app
 

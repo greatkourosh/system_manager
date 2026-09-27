@@ -253,6 +253,34 @@ Audit record written automatically. On `nm_activate` failure, NM rollback attemp
 }
 ```
 
+### `GET /api/notifications`
+**Auth required.** The conditions currently true, the alerts recently sent,
+and whether the last delivery worked.
+
+**Response:**
+```json
+{
+  "active": ["packages:stale-index", "packages:upgradable"],
+  "sent": [
+    {"key": "packages:stale-index", "title": "Oldest apt index is 888 days old",
+     "body": "...", "ts": 1789847540.7}
+  ],
+  "last_error": null,
+  "interval": 300
+}
+```
+
+A condition is announced once, when it newly appears; it is forgotten when it
+clears, so it can alert again. `active` is empty when nothing is wrong.
+
+### `POST /api/notifications`
+**Auth required.** Send a fixed test notification. The body is a constant, so
+nothing a caller sends reaches `notify-send`'s argv.
+
+**Response:** `200 {"ok": true, "state": {...}}`, or `503` with `ok: false` and
+`last_error` set when `notify-send` failed — a dead desktop daemon must not
+read as a delivered alert.
+
 ### `POST /api/login`
 **No auth.** Exchange access code for session.
 

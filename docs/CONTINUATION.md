@@ -210,6 +210,72 @@ snapshot/rollback (btrfs/zfs/timeshift)" is the other half of Future Work #2 and
 is untouched — it needs root, a snapshot strategy, and a rollback path, and is
 the same class of decision as the NM checkpoint question below.
 
+### 2026-09-27 — Desktop Notifications (Milestone 11)
+
+Closes the delivery half of Future Work #1. A background timer announces the
+conditions the app already observes, so a problem found at 3am is announced
+rather than waiting for someone to open a page.
+
+**It announces, it does not repair.** The conditions are the ones already
+computed: `server.py`'s `suggestions()` (memory <10%, root disk <10%, no
+default route) plus the two packages-module facts that were previously only
+visible on a page someone had to open — the upgradable count with its phased
+rollouts, and the age of the apt indexes. Nothing runs privileged and no new
+apt call is made; the packages snapshot is the same read-only parse the module
+already does.
+
+**Delivery was verified against the live stack, not assumed.** This host runs
+a real notification daemon (pid 4286, `gjs`) owning
+`org.freedesktop.Notifications` on the session bus, and a `Notify` round-trip
+returns an id. Three findings shaped the implementation:
+
+1. **AppArmor blocks it.** From a container, `notify-send` fails with
+   `AccessDenied: An AppArmor policy prevents this sender…` — the same class
+   as Milestone 8's D-Bus denial. It **succeeds** under
+   `security_opt: [apparmor=unconfined]`, which the shipped compose already
+   sets, so no new loosening was introduced. The Dockerfile gains
+   `libnotify-bin` (0.8.6-1), which the image did not have.
+2. **The bus address is already built.** `auth._subprocess_env()` resolves the
+   session bus to `unix:path=/run/user/1000/bus`, so `notify-send` is launched
+   through `auth.command_output` and inherits it. As argv, never a shell
+   string: the body is host-derived text and must not be word-split.
+3. **gunicorn does not export its worker count.** A `WEB_CONCURRENCY`-based
+   multi-worker guard was written, measured, and found to be dead code
+   (`WEB_CONCURRENCY=None` inside a real worker), so it was removed rather
+   than shipped. Like `ConnectivityStore`, the state is per-process and the
+   single-worker deployment is the documented one; `SYSTEM_MANAGER_NOTIFY=0`
+   is the escape hatch, and `TESTING` suppresses the timer.
+
+**A condition is announced once, when it newly appears.** The state is a set
+of keys, not a timestamp, so a machine that has been disk-full for a week does
+not re-notify every five minutes; the key is forgotten when the condition
+clears and can alert again. A send that **fails** is recorded in `last_error`
+and left unacknowledged, so the next tick retries rather than losing the alert
+to one dead daemon. A failing daemon never raises into the dashboard.
+
+**The stale-index alert reports the OLDEST index, the page reports the
+newest** — and that is deliberate, not an oversight. The page's `age_days` is
+`now - idx.newest`, which stays low as long as *one* repo answers, so on this
+host it reads 1.2 days and never fires while the oldest index is **888 days**
+old. A suite that stopped being fetched is exactly what `newest` misses. The
+alert therefore says "Oldest apt index is 888 days old" and names a failing
+repo rather than restating the page's claim. Fixing the page's measure is a
+separate call and was left alone.
+
+**Verified live** (image rebuilt, container recreated, timer left to run
+unsupervised): the thread fired on its own and sent two real desktop
+notifications — *Updates are waiting* and *Oldest apt index is 888 days old* —
+and a second tick sent nothing, confirming dedup. `/api/notifications` is
+auth-gated (401 on both methods with auth on), the dashboard and `/packages/`
+still render, and a failed send is reported as 503 rather than a false 200.
+117 tests + 40 subtests.
+
+**Not built: the other two halves of Future Work #1.** Configurable
+thresholds would mean a settings surface, persistence and per-threshold tests;
+webhook/email means storing credentials and calling user-supplied URLs, which
+is an SSRF surface and a security decision, not a feature. Neither is implied
+by what shipped.
+
 
 ---
 
@@ -225,6 +291,8 @@ run.py ── create_app() ── Flask
 │     │                     Security, Approval, ActionAudit (SQLite)
 │     ├── connectivity.py  → ConnectivityStore, GET/POST /api/connectivity
 │     │                     gateway → DNS → HTTPS probes every 60s when enabled
+│     ├── notifier.py      → Notifier, a 5-minute thread that announces each
+│     │                     new condition once via notify-send on the session bus
 │     ├── organizer.py     → proxy to folder_organizer app at /organizer
 │     ├── packages/        → blueprint at /packages; dpkg.py parses the host's
 │     │                     dpkg status + apt indexes (ro) and renders
@@ -259,6 +327,8 @@ server.py (collector library, no HTTP layer)
 | POST | `/api/approve` | Yes | Issue single-use approval token |
 | POST | `/api/execute` | Yes | Execute approved action |
 | GET | `/api/audit` | Yes | Recent action log |
+| GET | `/api/notifications` | Yes | Currently active conditions, recently sent alerts, `last_error`, `interval` |
+| POST | `/api/notifications` | Yes | Send a fixed test notification; `503` if `notify-send` failed |
 | POST | `/api/login` | No | Exchange access code for session |
 | POST | `/api/logout` | Yes | Invalidate session |
 | GET | `/api/connectivity` | Yes | Connectivity settings + last scan (`enabled`, `endpoints`, `destination`, `last_run`, `status`, `checks`, `explanations`) |
@@ -314,7 +384,7 @@ docker compose exec system-manager cat /data/access-code
 ### Tests
 ```bash
 python3 -m pytest -q
-# 96 tests + 40 subtests, ~2s
+# 117 tests + 40 subtests, ~2s
 ```
 
 ---
@@ -328,13 +398,21 @@ python3 -m pytest -q
 | `SYSTEM_MANAGER_AUTH_TOKEN_PATH` | Flask | (empty) | Writable path for the rotating access code (auth on) |
 | `INVENTORY_DB` | Flask | (tmpdir) | SQLite file for the inventory module |
 | `PACKAGES_HOST_DIR` | Flask | `/host` | Prefix for the host's dpkg status and apt lists; tests point it at a fixture |
+| `SYSTEM_MANAGER_NOTIFY` | Flask | `1` | Set `0` to stop the notification timer starting (one alert source per process) |
 
 ---
 
 ## Future Work (Priority Order)
 
 ### 1. Notifications & Scheduling
-Desktop notifications (libnotify) for critical diagnostics; background scheduler with configurable intervals; webhook/email alerts for warranty, disk, memory thresholds.
+Desktop notifications — **done**, see Milestone 11. A background timer
+announces the conditions the app already observes (low memory, low disk, no
+default route, waiting updates, stale apt indexes), once per condition as it
+appears.
+**Still open:** user-configurable thresholds (the 10% cutoffs are hardcoded in
+`server.py:suggestions()`), and webhook/email alerts — the latter means
+storing credentials and calling user-supplied URLs, so it is a security
+decision, not just a feature.
 
 ### 2. Package & Update Management
 ~~List upgradable packages~~ — **done, read-only**, see Milestone 10. The
@@ -386,7 +464,7 @@ written; `scripts/` does not exist in this project.
 
 ## Git Status
 
-Clean through `888abfe` ("feat: a read-only Packages & Updates module"). Milestone 5 completed in `d1ac423`. The 2026-09-26 verification pass (Milestone 6) was documentation-only. A later pass on the same day fixed four container/host bugs — see the Milestone 7 entry, and Milestone 9 below. **96 tests + 40 subtests pass** (re-verified 2026-09-27, ~2s).
+Clean through `888abfe` ("feat: a read-only Packages & Updates module"). Milestone 5 completed in `d1ac423`. The 2026-09-26 verification pass (Milestone 6) was documentation-only. A later pass on the same day fixed four container/host bugs — see the Milestone 7 entry, and Milestone 9 below. **117 tests + 40 subtests pass** (re-verified 2026-09-27, ~2s).
 
 ### 2026-09-26 — Milestone 9: stale-claim sweep, video library, panel retirement
 
@@ -461,9 +539,9 @@ port-4000 proxy.
   snapshot/rollback. That needs root, a snapshot strategy and a rollback path,
   so it is a decision, not a feature: the same class as the NM checkpoint
   question below.
-- **Notifications & scheduling (#1)** is the next untouched item, and is where
-  the phased-update percentages and the stale-index warning would actually pay
-  off — both are only useful if something surfaces them.
+- **Notifications & scheduling (#1)** — the desktop half shipped
+  2026-09-27, see Milestone 11. What remains is configurable thresholds and
+  webhook/email, both listed above.
 
 ### Requested: richer filters + sorting on the Video Library page
 

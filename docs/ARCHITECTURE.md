@@ -20,6 +20,8 @@ The canonical app is a **Flask application** (`system_manager/`) that mounts fea
 │  │                  /organizer (URL rewriter)                │
 │  ├─ inventory/     — hardware inventory blueprint + SQLite   │
 │  ├─ packages/      — host dpkg/apt indexes, read-only        │
+│  ├─ connectivity.py — opt-in gateway/DNS/HTTPS probes        │
+│  ├─ notifier.py    — 5-min thread, notify-send per new cond. │
 │  └─ __init__.py    — create_app(), /, /api/status, /modules  │
 │                                                    │         │
 │   templates/ (Jinja) · static/ (vanilla JS/CSS)              │
@@ -227,8 +229,8 @@ index.html (served by /)
 | Contract | Fixtures + mocks | Malformed input, timeouts, permission errors, unavailable sensors |
 | Smoke | Manual / browser | Full UI flow, container mounts, real system data |
 
-Run: `python3 -m pytest -q` (96 tests + 40 subtests, ~2s)
-Test modules: `test_server.py` (19 — collectors, cache and actions), `test_connectivity.py` (11 — config, scan cadence, endpoint validation, API auth), `test_flask_app.py` (17 — Flask auth, approval flow, subprocess env), `test_lock.py` (15 — module blueprint gating and the organizer's URL rewriter), `test_inventory.py` (5 — store + API), `test_packages.py` (29 — version ordering, index parsing, the page). These sum to 96.
+Run: `python3 -m pytest -q` (117 tests + 40 subtests, ~2s)
+Test modules: `test_server.py` (19 — collectors, cache and actions), `test_connectivity.py` (11 — config, scan cadence, endpoint validation, API auth), `test_flask_app.py` (17 — Flask auth, approval flow, subprocess env), `test_lock.py` (19 — module blueprint gating and the organizer's URL rewriter), `test_inventory.py` (5 — store + API), `test_packages.py` (29 — version ordering, index parsing, the page), `test_notifier.py` (17 — condition derivation, announce-once, retry, API auth). These sum to 117.
 
 ## Extensibility Points
 

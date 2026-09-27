@@ -25,7 +25,8 @@ def _paths():
     return os.path.join(base, "var/lib/dpkg/status"), os.path.join(base, "var/lib/apt/lists")
 
 
-def _snapshot():
+def snapshot():
+    """The host's upgradable set, with no action to approve and nothing run."""
     status_path, list_dir = _paths()
     try:
         host = HostApt(status_path=status_path, list_dir=list_dir).load()
@@ -64,13 +65,13 @@ def _install_command(names):
 @packages_bp.route("/")
 def list_packages():
     """Upgradable packages, with the commands to run them."""
-    snapshot = _snapshot()
-    rows = snapshot["upgradable"] if snapshot["ok"] else []
+    data = snapshot()
+    rows = data["upgradable"] if data["ok"] else []
     names = [r["name"] for r in rows]
     command, dry_run = _install_command(names) if names else ("", "")
-    backports_command, backports_dry_run = _install_command([r["name"] for r in snapshot.get("backports", [])])
+    backports_command, backports_dry_run = _install_command([r["name"] for r in data.get("backports", [])])
 
-    payload = dict(snapshot)
+    payload = dict(data)
     payload.update({"command": command, "dry_run": dry_run,
                     "backports_command": backports_command, "backports_dry_run": backports_dry_run})
     if request.headers.get("Accept", "").startswith("application/json"):
@@ -78,9 +79,9 @@ def list_packages():
 
     return render_template(
         "packages/list.html",
-        snapshot=snapshot,
+        snapshot=data,
         rows=rows,
-        backports=snapshot.get("backports", []),
+        backports=data.get("backports", []),
         command=command,
         dry_run=dry_run,
         backports_command=backports_command,

@@ -34,6 +34,7 @@ each time you need to log in. `/health` is the only unauthenticated endpoint.
 | **System Observation** | CPU, memory, disk, uptime, kernel, hardware identity |
 | **Network** | Interfaces, addresses, routes, DNS servers |
 | **Connectivity** | Gateway reachability, DNS resolution, TLS endpoint test (opt-in) |
+| **Notifications** | Desktop alert when a new condition appears (low memory/disk, no default route, waiting updates, stale apt indexes) |
 | **Actions** | Restart/start user services, activate NetworkManager profiles (VPN, Wi-Fi, ethernet) |
 | **Safety** | Preview→approval flow, single-use tokens, NM checkpoint rollback, SQLite audit log |
 | **Auth** | Rotating local access code, session cookies, CSRF/Origin/Host validation |
@@ -44,13 +45,14 @@ each time you need to log in. `/health` is the only unauthenticated endpoint.
   - `status` — live system snapshot (reuses `server.py` collectors)
   - `auth` — access-code auth + approved actions + SQLite audit
   - `connectivity` — opt-in gateway → DNS → HTTPS diagnostics (reuses `server.py` probes)
+  - `notifier` — background thread that announces each newly-appearing condition once via `notify-send`
   - `organizer` — mounts the sibling folder_organizer app under `/organizer`
   - `inventory` — hardware inventory (SQLite store, CRUD + export)
   - `packages` — the host's upgradable apt set, read-only; renders the commands, runs none
 - **Templates/static** under `templates/`, `static/` (Jinja, vanilla JS/CSS)
 - **Collector library** (`server.py`, stdlib-only, no HTTP layer) — imported by `system_manager/` for its collectors, connectivity probes and action primitives. Its standalone panel was retired 2026-09-26.
 - **Containerized** with host mounts for `/proc`, `/sys`, `/etc`, dbus, and (read-only) the host's dpkg database and apt indexes
-- **96 unit/integration tests** (`tests/test_server.py`, `tests/test_flask_app.py`, `tests/test_connectivity.py`, `tests/test_inventory.py`, `tests/test_lock.py`, `tests/test_packages.py`)
+- **117 unit/integration tests** (`tests/test_server.py`, `tests/test_flask_app.py`, `tests/test_connectivity.py`, `tests/test_inventory.py`, `tests/test_lock.py`, `tests/test_packages.py`, `tests/test_notifier.py`)
 
 ## Documentation
 
