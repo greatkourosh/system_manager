@@ -1,0 +1,219 @@
+{% extends "organizer/base.html" %}
+{% block title %}Music Tags{% endblock %}
+{% block content %}
+{% if not a %}
+<div class="alert alert-info">Tag audit not run yet. Run <code>python3 music_tag_audit.py</code> first.</div>
+{% else %}
+<h4 class="mb-1">Music Tags — Detect, Review, Fix
+  <span class="text-muted small">{{ "{:,}".format(a.total_files) }} files · {{ "{:,}".format(a.files_needing_fix) }} need fixes</span>
+</h4>
+
+<div class="row g-3 mb-3">
+  {% for k, label in [('total_files','Total files'), ('files_needing_fix','Need fixing')] %}
+  <div class="col-md-2"><div class="card p-2"><div class="text-muted small">{{ label }}</div><div class="stat-num">{{ "{:,}".format(a[k]) }}</div></div></div>
+  {% endfor %}
+  <div class="col-md-2"><div class="card p-2"><div class="text-muted small">Fully tagged</div><div class="stat-num text-success">{{ a.status_counts.ok|default(0) }}</div></div></div>
+  <div class="col-md-3"><div class="card p-2">
+    <div class="text-muted small">Plan: {{ plan_stats.entries }} entries · {{ plan_stats.accepted }} accepted</div>
+    <div class="small">{% for s, n in plan_stats.fields_by_source|dictsort %}<span class="badge bg-secondary me-1">{{ s }}: {{ n }}</span>{% endfor %}</div>
+    {% set fixed = a.files_needing_fix %}
+    {% set pct = ((plan_stats.accepted / fixed * 100) | round(1)) if fixed else 0 %}
+    <div class="progress mt-1" style="height:6px;"><div class="progress-bar bg-success" style="width: {{ pct }}%"></div></div>
+    <div class="small text-muted">{{ pct }}% of {{ "{:,}".format(fixed) }} accepted</div>
+  </div></div>
+  <div class="col-md-3"><div class="card p-2"><div class="text-muted small">Missing fields</div>
+    <div class="small">{% for field, count in a.missing_field_counts|dictsort(false, 'value')|reverse %}<span class="badge bg-secondary me-1">{{ field }}: {{ "{:,}".format(count) }}</span>{% endfor %}</div></div></div>
+</div>
+
+<div class="card p-2 mb-3">
+  <div class="row g-2 align-items-center">
+    <div class="col-md-3"><input id="filterBox" class="form-control form-control-sm" placeholder="Filter paths…" value="{{ q }}"></div>
+    <div class="col-auto">
+      <select id="folderSel" class="form-select form-select-sm" onchange="applyFilter(0)">
+        <option value="" {% if not folder %}selected{% endif %}>All folders</option>
+        {% for name, v in folders %}<option value="{{ name }}" {% if folder==name %}selected{% endif %}>{{ name }} ({{ v.no_tags }})</option>{% endfor %}
+      </select>
+    </div>
+    <div class="col-auto">
+      <select id="missingSel" class="form-select form-select-sm" onchange="applyFilter(0)">
+        <option value="all" {% if missing=='all' %}selected{% endif %}>Any missing field</option>
+        {% for f in ['artist','title','album','year','genre'] %}<option value="{{ f }}" {% if missing==f %}selected{% endif %}>missing {{ f }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="col-auto">
+      <select id="stateSel" class="form-select form-select-sm" onchange="applyFilter(0)">
+        <option value="all" {% if state=='all' %}selected{% endif %}>All</option>
+        <option value="unplanned" {% if state=='unplanned' %}selected{% endif %}>No proposal yet</option>
+        <option value="planned" {% if state=='planned' %}selected{% endif %}>Has proposal</option>
+        <option value="accepted" {% if state=='accepted' %}selected{% endif %}>Accepted</option>
+      </select>
+    </div>
+    <div class="col-auto"><button class="btn btn-sm btn-dark" onclick="applyFilter(0)">Apply</button></div>
+    <div class="col-auto"><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('organizer.organizer_api.music_tags_page') }}">Reset</a></div>
+  </div>
+  <div class="mt-2 d-flex flex-wrap gap-2">
+    <button class="btn btn-sm btn-success" onclick="propose()">⚡ Auto-detect proposals (filtered)</button>
+    <button class="btn btn-sm btn-outline-primary" onclick="bulk('accept')">Accept page</button>
+    <button class="btn btn-sm btn-outline-success" onclick="bulk('accept-safe')" title="Accept only proposals where every field is med/high confidence and no existing tag would be overwritten">Auto-accept safe (filtered)</button>
+    <button class="btn btn-sm btn-outline-secondary" onclick="bulk('unaccept')">Unaccept page</button>
+    {% if mb_available %}<button class="btn btn-sm btn-outline-info" onclick="mergeMB()">Merge MusicBrainz candidates</button>{% endif %}
+    <button class="btn btn-sm btn-danger" onclick="exportPlan()">Export fix script</button>
+    <button class="btn btn-sm btn-outline-danger" onclick="clearPlan()">Clear plan</button>
+    <span class="ms-auto text-muted small">Filtered: <strong>{{ shown }}</strong> files · page {{ page+1 }}/{{ pages }}</span>
+  </div>
+</div>
+
+<div id="problems">
+{% for p in problems %}
+  {% set pe = p.plan_entry %}
+  <div class="card p-2 mb-2" data-path="{{ p.path }}">
+    <div class="d-flex flex-wrap gap-2 align-items-center mb-1">
+      <input type="checkbox" class="row-accept form-check-input" {% if pe and pe.accepted %}checked{% endif %}
+             onchange="setAccept('{{ p.path|e }}', this.checked)" title="accepted">
+      <span class="badge {% if p.status=='error' %}bg-danger{% else %}bg-warning text-dark{% endif %}">{{ p.status }}</span>
+      {% if pe %}<span class="badge bg-success">planned</span>{% else %}<span class="badge bg-secondary">no proposal</span>{% endif %}
+      <code class="path-code flex-grow-1" title="{{ p.path }}">{{ p.path }}</code>
+    </div>
+    <div class="row g-1 tag-grid">
+      {% for f in ['artist','title','album','year','genre'] %}
+      {% set cur = p[f] %}
+      {% set spec = pe.fields.get(f) if pe else None %}
+      <div class="col-md">
+        <label class="small text-muted mb-0">{{ f }}{% if cur %} <span class="text-danger" title="existing tag: {{ cur }}">has</span>{% endif %}</label>
+        <input class="form-control form-control-sm tag-input" data-field="{{ f }}" data-path="{{ p.path }}"
+               value="{{ spec.value if spec else '' }}" placeholder="{{ cur or '—' }}"
+               onchange="saveField(this)">
+        <div class="small">
+          {% if spec %}<span class="badge bg-info text-dark">{{ spec.source }}</span> <span class="text-muted">{{ spec.confidence }}</span>{% endif %}
+          {% if cur %}
+            <span class="text-danger small overwrap" title="overwrites existing tag: {{ cur }}">
+              <input type="checkbox" class="ow-check" {% if spec and spec.overwrite %}checked{% endif %}
+                     onchange="setOverwrite('{{ p.path|e }}','{{ f }}',this.checked)"> overwrite
+            </span>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+{% endfor %}
+</div>
+
+<nav class="d-flex gap-2 align-items-center my-3 flex-wrap">
+  {% if page > 0 %}<a class="btn btn-sm btn-outline-secondary" href="#" onclick="applyFilter({{ page-1 }});return false;">&larr; Prev</a>{% endif %}
+  <span class="text-muted small">page {{ page+1 }} / {{ pages }} ({{ shown }} files)</span>
+  {% if page+1 < pages %}<a class="btn btn-sm btn-outline-secondary" href="#" onclick="applyFilter({{ page+1 }});return false;">Next &rarr;</a>{% endif %}
+</nav>
+
+<div class="text-muted small mb-5">
+  Workflow: <b>Auto-detect proposals</b> → review/edit values → <b>Accept</b> → <b>Export fix script</b> →
+  run <code>python3 apply_music_tags.py</code> (dry-run) then <code>--apply</code> → re-run <code>python3 music_tag_audit.py</code> to refresh these stats.
+  Empty-value fields are only filled if the file has no tag; tick <span class="text-danger">overwrite</span> to replace an existing tag.
+</div>
+
+<div id="modalHost"></div>
+
+<style>
+  .path-code { font-size: .74rem; word-break: break-all; }
+  .tag-grid .col-md { min-width: 150px; }
+  .row-accept { margin-right: .4rem; }
+</style>
+
+<script>
+function qs() {
+  const p = new URLSearchParams();
+  p.set('q', document.getElementById('filterBox').value);
+  p.set('folder', document.getElementById('folderSel').value);
+  p.set('missing', document.getElementById('missingSel').value);
+  p.set('state', document.getElementById('stateSel').value);
+  return p;
+}
+function applyFilter(page) {
+  const p = qs(); p.set('page', page); location.search = p.toString();
+}
+async function post(url, body) {
+  const r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+  return r.json();
+}
+function pagePaths() {
+  return [...document.querySelectorAll('#problems .card')].map(c => c.dataset.path);
+}
+function currentFilters() {
+  return {q: document.getElementById('filterBox').value, folder: document.getElementById('folderSel').value,
+          missing: document.getElementById('missingSel').value, state: document.getElementById('stateSel').value};
+}
+
+async function propose() {
+  const f = currentFilters();
+  if (!confirm('Auto-detect tags for all filtered files without proposals and add them to the plan?')) return;
+  const j = await post(U['api/tags/propose'], {filters: f});
+  if (!j.ok) { alert('Failed: ' + j.error); return; }
+  alert(`Proposed tags for ${j.proposed} files (plan now ${j.plan_size}).`);
+  location.reload();
+}
+
+async function saveField(input) {
+  const path = input.dataset.path, field = input.dataset.field;
+  await post(U['api/tags/set-entry'], {path: path, fields: {[field]: {value: input.value}}});
+}
+async function setAccept(path, on) {
+  await post(U['api/tags/set-entry'], {path: path, accepted: on});
+}
+async function setOverwrite(path, field, on) {
+  const input = document.querySelector(`.tag-input[data-path="${CSS.escape(path)}"][data-field="${field}"]`);
+  await post(U['api/tags/set-entry'], {path: path, fields: {[field]: {value: input ? input.value : '', overwrite: on}}});
+}
+async function bulk(mode) {
+  if (!confirm(`${mode} for all files on this page?`)) return;
+  const j = await post(U['api/tags/bulk'], {mode: mode, page_paths: pagePaths()});
+  location.reload();
+}
+async function clearPlan() {
+  if (!confirm('Delete ALL proposals in the plan? Accepted manual edits are lost too.')) return;
+  await post(U['api/tags/clear-plan'], {});
+  location.reload();
+}
+async function mergeMB() {
+  const j = await post(U['api/tags/merge-mb'], {});
+  if (!j.ok) { alert('Failed: ' + j.error); return; }
+  alert(`Merged ${j.fields_merged} fields from MusicBrainz candidates.`);
+  location.reload();
+}
+async function exportPlan() {
+  const j = await post(U['api/tags/export'], {});
+  if (!j.ok) { alert('Failed: ' + j.error); return; }
+  showModal(j);
+}
+function showModal(j) {
+  const host = document.getElementById('modalHost');
+  host.innerHTML = `
+  <div class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" style="background:rgba(0,0,0,.5);z-index:2000;">
+    <div class="card p-4 shadow" style="max-width:660px;width:92%;">
+      <h5 class="mb-2">Tag fix script ready</h5>
+      <p><strong>${j.count}</strong> files · ${j.skipped_existing} field proposals skipped (existing tag, overwrite unticked)${j.skipped_unaccepted ? ` · ${j.skipped_unaccepted} not yet accepted` : ''}</p>
+      <label class="form-label small text-muted mb-1">1) Dry-run first (no writes)</label>
+      <div class="input-group input-group-sm mb-2">
+        <input class="form-control font-monospace" id="cmdDry" readonly value="${j.dry_command.replace(/"/g, '&quot;')}">
+        <button class="btn btn-dark" onclick="copyVal('cmdDry')">Copy</button>
+      </div>
+      <label class="form-label small text-muted mb-1">2) Apply for real</label>
+      <div class="input-group input-group-sm mb-3">
+        <input class="form-control font-monospace" id="cmdApply" readonly value="${j.apply_command.replace(/"/g, '&quot;')}">
+        <button class="btn btn-dark" onclick="copyVal('cmdApply')">Copy</button>
+      </div>
+      <div class="small text-muted mb-3">List: ${j.file} · log: commands_to_run/tag_log.txt. Then re-run <code>python3 music_tag_audit.py</code> to refresh stats.</div>
+      <div class="text-end"><button class="btn btn-sm btn-primary" onclick="this.closest('.position-fixed').remove()">Close</button></div>
+    </div>
+  </div>`;
+}
+function copyVal(id) {
+  const el = document.getElementById(id);
+  el.select();
+  navigator.clipboard.writeText(el.value).then(() => {
+    const btn = el.nextElementSibling, old = btn.textContent;
+    btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = old, 1200);
+  });
+}
+</script>
+{% endif %}
+{% endblock %}

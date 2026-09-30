@@ -1,0 +1,303 @@
+{% extends "organizer/base.html" %}
+{% block title %}Video Library{% endblock %}
+{% block content %}
+{% if cards is defined %}
+<h4 class="mb-1">Video Library <span class="text-muted small">{{ "{:,}".format(total) }} folders · built {{ today }}</span></h4>
+
+<div class="card p-2 mb-3">
+  <div class="row g-2 align-items-center">
+    <div class="col-md-3"><input id="filterBox" class="form-control form-control-sm" placeholder="Search title…" value="{{ q }}"></div>
+    <div class="col-auto">
+      <select id="rootSel" class="form-select form-select-sm" onchange="applyFilter(0)">
+        <option value="all" {% if root=='all' %}selected{% endif %}>All sections</option>
+        <option value="movies" {% if root=='movies' %}selected{% endif %}>Movies</option>
+        <option value="serials" {% if root=='serials' %}selected{% endif %}>Serials</option>
+        <option value="videos" {% if root=='videos' %}selected{% endif %}>Videos</option>
+      </select>
+    </div>
+    <div class="col-auto">
+      <select id="genreSel" class="form-select form-select-sm" onchange="applyFilter(0)">
+        <option value="">Any genre</option>
+        {% for g in all_genres %}<option value="{{ g }}" {% if genre==g %}selected{% endif %}>{{ genre_label(g) }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="col-auto">
+      <select id="subSel" class="form-select form-select-sm" onchange="applyFilter(0)">
+        <option value="all" {% if sub=='all' %}selected{% endif %}>Any subtitle state</option>
+        <option value="missing-fa" {% if sub=='missing-fa' %}selected{% endif %}>Missing FA subs</option>
+        <option value="missing-en" {% if sub=='missing-en' %}selected{% endif %}>Missing EN subs</option>
+        <option value="missing-both" {% if sub=='missing-both' %}selected{% endif %}>Missing both</option>
+      </select>
+    </div>
+    <div class="col-auto">
+      <select id="decadeSel" class="form-select form-select-sm" onchange="applyFilter(0)">
+        <option value="">Any decade</option>
+        {% for d in decades %}<option value="{{ d }}" {% if decade==d|string %}selected{% endif %}>{{ d }}s</option>{% endfor %}
+        <option value="unknown" {% if decade=='unknown' %}selected{% endif %}>No year in name (all serials)</option>
+      </select>
+    </div>
+    <div class="col-auto">
+      <select id="ratingSel" class="form-select form-select-sm" onchange="applyFilter(0)">
+        <option value="">Any rating</option>
+        <option value="9" {% if rating=='9' %}selected{% endif %}>rating &ge; 9</option>
+        <option value="8" {% if rating=='8' %}selected{% endif %}>rating &ge; 8</option>
+        <option value="7" {% if rating=='7' %}selected{% endif %}>rating &ge; 7</option>
+        <option value="6" {% if rating=='6' %}selected{% endif %}>rating &ge; 6</option>
+      </select>
+    </div>
+    <div class="col-auto">
+      <select id="kindSel" class="form-select form-select-sm" onchange="applyFilter(0)">
+        <option value="all" {% if kind=='all' %}selected{% endif %}>All kinds</option>
+        <option value="movie" {% if kind=='movie' %}selected{% endif %}>Movies only</option>
+        <option value="serial" {% if kind=='serial' %}selected{% endif %}>Serials only</option>
+      </select>
+    </div>
+    <div class="col-auto">
+      <select id="minGbSel" class="form-select form-select-sm" onchange="applyFilter(0)">
+        <option value="">Any size</option>
+        <option value="1" {% if min_gb=='1' %}selected{% endif %}>1+ GB</option>
+        <option value="5" {% if min_gb=='5' %}selected{% endif %}>5+ GB</option>
+        <option value="20" {% if min_gb=='20' %}selected{% endif %}>20+ GB</option>
+        <option value="100" {% if min_gb=='100' %}selected{% endif %}>100+ GB</option>
+      </select>
+    </div>
+    <div class="col-auto">
+      <select id="sortSel" class="form-select form-select-sm" onchange="applyFilter(0)">
+        <option value="" {% if sort=='' %}selected{% endif %}>File order</option>
+        <option value="year" {% if sort=='year' %}selected{% endif %}>Year &darr;</option>
+        <option value="rating" {% if sort=='rating' %}selected{% endif %}>Rating &darr;</option>
+        <option value="title" {% if sort=='title' %}selected{% endif %}>Title A–Z</option>
+        <option value="size" {% if sort=='size' %}selected{% endif %}>Largest first</option>
+        <option value="episodes" {% if sort=='episodes' %}selected{% endif %}>Most videos</option>
+      </select>
+    </div>
+    <div class="col-auto"><button class="btn btn-sm btn-dark" onclick="applyFilter(0)">Apply</button></div>
+    <div class="col-auto"><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('organizer.organizer_api.videos_page') }}">Reset</a></div>
+    <div class="col-auto ms-auto text-muted small">{{ shown }} shown · page {{ page+1 }}/{{ pages }}</div>
+  </div>
+  <div class="mt-2 small text-muted" id="subBar">
+    <button class="btn btn-sm btn-outline-secondary" id="subSelAll" onclick="subSelectAll()">Select missing on page</button>
+    <button class="btn btn-sm btn-outline-secondary" id="subQueue" onclick="subQueueSelected()" disabled>Queue subtitles</button>
+    <button class="btn btn-sm btn-outline-secondary" id="subClear" onclick="subClear()">Clear queue</button>
+    <span class="ms-2" id="subStatus">checking queue…</span>
+    <span class="ms-2">posters: <code>python3 tmdb_client.py</code></span>
+  </div>
+</div>
+
+<div class="row row-cols-2 row-cols-md-4 row-cols-xl-6 g-3">
+  {% for c in cards %}
+  <div class="col">
+    <div class="card h-100 video-card" title="{{ c.folder }}"
+         data-card-id="{{ c.id }}" data-fa="{{ 1 if c.has_fa_sub else 0 }}" data-en="{{ 1 if c.has_en_sub else 0 }}">
+      <div class="poster-slot" data-id="{{ c.poster_id or c.id }}" data-has="{{ 1 if c.poster else 0 }}">
+        <div class="poster-ph d-flex align-items-center justify-content-center">
+          <span class="display-6">{{ c.title[:1]|default('🎬') }}</span>
+        </div>
+      </div>
+      <div class="card-body p-2">
+        <div class="fw-bold small text-truncate" title="{{ c.title }}">{{ c.title }}</div>
+        <div class="small text-muted">
+          {%- set sc = card_rating(c) -%}
+          {# Serial folder names carry no year, so an em-dash here would just be a placeholder saying "no year in name". #}
+          {%- if c.year %}{{ c.year }} · {% endif -%}
+          {%- if sc[0] is not none %}⭐ {{ '%.1f'|format(sc[0]) }}
+            {%- if sc[1] is none %} <span title="scraped from the folder name — no vote count">*</span>
+            {%- elif not sc[2] %} <span title="TMDB matched a differently-spelled title, so this may be a different work">?</span>
+            {%- elif sc[1] < 100 %} <span title="only {{ sc[1] }} TMDB votes, treat with caution">({{ sc[1] }})</span>{% endif %}
+          {%- elif not c.year %}&mdash;{% endif -%}
+          {%- if c.limited %} · Limited{% endif -%}
+        </div>
+        <div class="small text-truncate text-muted" title="{{ c.genres or '' }}">{{ c.genres or '' }}</div>
+        <div class="mt-1">
+          {% if is_recommended(c) %}
+          <span class="badge text-bg-warning" title="rating {{ c.rating }} and popularity {{ c['pop'] }}, both scraped from the folder name — not a curated score">★ Recommended {{ c.rating }}·{{ c['pop'] }}</span>
+          {% endif %}
+          {% set sb = season_badge(c) %}
+          {% if sb %}
+          <span class="badge {{ season_badge_class(c) }}" title="seasons found on disk, not parsed from the folder name">{{ sb }}</span>
+          {% endif %}
+          {%- set sn = season_counts(c) -%}
+          {%- if sn and (sn.on_disk is not none or sn.total is not none) %}
+          <span class="badge bg-secondary"
+                title="seasons on disk / seasons the folder name claims / seasons the series has in total{% if sn.returning %} (still returning, so the total can grow){% endif %}">{% if sn.on_disk is not none %}{{ sn.on_disk }}{% else %}?{% endif %} / {% if sn.claimed is not none %}{{ sn.claimed }}{% else %}?{% endif %} / {% if sn.total is not none %}{{ sn.total }}{% else %}?{% endif %}{% if sn.returning %} +{% endif %}</span>
+          {%- endif %}
+          <span class="badge {% if c.has_fa_sub %}bg-success{% else %}bg-secondary{% endif %}">FA</span>
+          <span class="badge {% if c.has_en_sub %}bg-success{% else %}bg-secondary{% endif %}">EN</span>
+          {% if not (c.has_fa_sub and c.has_en_sub) %}
+          <button class="btn btn-sm btn-outline-primary py-0 ms-1 sub-btn"
+                  onclick="subQueueOne(this)"
+                  data-missing="{% if not c.has_fa_sub %}fa{% endif %}{% if not c.has_en_sub %}{% if not c.has_fa_sub %} {% endif %}en{% endif %}"
+                  title="Queue a subtitle fetch for this title. Runs on the host.">＋sub</button>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<nav class="d-flex gap-2 align-items-center my-3">
+  {% if page > 0 %}<a class="btn btn-sm btn-outline-secondary" href="#" onclick="applyFilter({{ page-1 }});return false;">&larr; Prev</a>{% endif %}
+  <span class="text-muted small">page {{ page+1 }} / {{ pages }}</span>
+  {% if page+1 < pages %}<a class="btn btn-sm btn-outline-secondary" href="#" onclick="applyFilter({{ page+1 }});return false;">Next &rarr;</a>{% endif %}
+</nav>
+
+<script>
+function applyFilter(page) {
+  const p = new URLSearchParams();
+  p.set('q', document.getElementById('filterBox').value);
+  p.set('root', document.getElementById('rootSel').value);
+  p.set('genre', document.getElementById('genreSel').value);
+  p.set('sub', document.getElementById('subSel').value);
+  p.set('decade', document.getElementById('decadeSel').value);
+  p.set('rating', document.getElementById('ratingSel').value);
+  p.set('kind', document.getElementById('kindSel').value);
+  p.set('min_gb', document.getElementById('minGbSel').value);
+  p.set('sort', document.getElementById('sortSel').value);
+  p.set('page', page);
+  location.search = p.toString();
+}
+
+// lazy-load posters for cards that have one on disk
+document.querySelectorAll('.poster-slot[data-has="1"]').forEach(slot => {
+  fetch(U['api/video/poster'] + '?id=' + encodeURIComponent(slot.dataset.id))
+    .then(r => r.ok ? r.json() : null)
+    .then(j => {
+      if (!j || !j.ok) return;
+      const img = document.createElement('img');
+      img.className = 'card-img-top';
+      img.src = 'data:image/jpeg;base64,' + j.b64;
+      slot.replaceChildren(img);
+    })
+    .catch(() => {});
+});
+
+// --- subtitle queue -------------------------------------------------------
+// The app can't fetch subtitles: this container has no /media mount and no
+// OpenSubtitles credentials. It only records intent in a queue file that
+// subtitle_runner.py drains on the host.
+const subQueued = new Set();
+
+function subMissingLangs(card) {
+  const langs = [];
+  if (card.dataset.fa !== '1') langs.push('fa');
+  if (card.dataset.en !== '1') langs.push('en');
+  return langs;
+}
+
+function subSetStatus(text) {
+  const el = document.getElementById('subStatus');
+  if (el) el.textContent = text;
+}
+
+function subRefreshQueue() {
+  fetch(U['api/subtitles/queue'])
+    .then(r => r.ok ? r.json() : null)
+    .then(j => {
+      if (!j) return;
+      subQueued.clear();
+      subSetStatus(j.pending
+        ? j.pending + ' queued · ' + j.quota + ' downloads/day free tier'
+        : 'queue empty · ' + j.quota + ' downloads/day free tier');
+    })
+    .catch(() => subSetStatus('queue status unavailable'));
+}
+
+async function subPost(url, body) {
+  const r = await fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'},
+                              body: JSON.stringify(body || {})});
+  return r.ok ? r.json() : {ok: false, error: 'HTTP ' + r.status};
+}
+
+// The id comes off the card's data attribute, never off a JS literal: Jinja
+// escapes an apostrophe to &#39;, which would reach here as a literal and leave
+// the button silently dead on titles like "Rosemary's Baby".
+async function subQueueOne(btn) {
+  const card = btn.closest('.video-card');
+  if (!card) return;
+  const cardId = card.dataset.cardId;
+  const langs = subMissingLangs(card);
+  if (!langs.length) { subSetStatus('already has both languages'); return; }
+  const j = await subPost(U['api/subtitles/queue'], {card_ids: [cardId], langs});
+  if (j.ok) {
+    btn.disabled = true;
+    btn.textContent = 'queued';
+    subSetStatus(j.pending + ' queued · run subtitle_runner.py on the host');
+  } else {
+    subSetStatus('queue failed: ' + (j.error || 'unknown'));
+  }
+}
+
+// Bulk action scoped to whatever the "Any subtitle state" filter is showing,
+// so "missing-en" then "queue" acts on the same set the user is looking at.
+async function subSelectAll() {
+  const cards = [...document.querySelectorAll('.video-card')];
+  let n = 0;
+  const langs = new Set();
+  for (const card of cards) {
+    for (const l of subMissingLangs(card)) { langs.add(l); n++; }
+  }
+  if (!n) { subSetStatus('nothing on this page is missing a subtitle'); return; }
+  const btn = document.getElementById('subQueue');
+  btn.disabled = false;
+  btn.textContent = 'Queue ' + n + ' (' + [...langs].join('+') + ')';
+  subSetStatus(n + ' missing of ' + (cards.length * 2) + ' on this page — click Queue to add');
+}
+
+async function subQueueSelected() {
+  const btn = document.getElementById('subQueue');
+  const cards = [...document.querySelectorAll('.video-card')];
+  const ids = [], langs = new Set();
+  for (const card of cards) {
+    const m = subMissingLangs(card);
+    if (m.length) { ids.push(card.dataset.cardId); m.forEach(l => langs.add(l)); }
+  }
+  if (!ids.length) { subSetStatus('nothing selected'); return; }
+  btn.disabled = true;
+  const j = await subPost(U['api/subtitles/queue'], {card_ids: ids, langs: [...langs]});
+  subSetStatus(j.ok ? j.pending + ' queued · run subtitle_runner.py on the host'
+                    : 'queue failed: ' + (j.error || 'unknown'));
+  document.querySelectorAll('.sub-btn').forEach(b => { b.disabled = true; b.textContent = 'queued'; });
+}
+
+async function subClear() {
+  const j = await subPost(U['api/subtitles/clear'], {});
+  subSetStatus(j.ok ? 'queue cleared' : 'clear failed');
+  document.querySelectorAll('.sub-btn').forEach(b => { b.disabled = false; b.textContent = '＋sub'; });
+  const btn = document.getElementById('subQueue');
+  btn.disabled = true;
+  btn.textContent = 'Queue subtitles';
+}
+
+subRefreshQueue();
+</script>
+
+<style>
+  .video-card { cursor: default; }
+  .poster-ph { aspect-ratio: 2/3; background: linear-gradient(135deg, var(--bs-secondary-bg), var(--bs-tertiary-bg)); color: var(--bs-secondary-color); }
+  .video-card img { aspect-ratio: 2/3; object-fit: cover; }
+</style>
+
+{% else %}
+<h4 class="mb-3">Videos <span class="text-muted small">{{ "{:,}".format(total) }} files (showing first 300)</span></h4>
+<div class="alert alert-warning">video_library.json not built. Run <code>python3 video_catalog.py</code> to upgrade to the poster-card library view.</div>
+<form class="row g-2 mb-3" method="get">
+  <div class="col-md-6"><input class="form-control" name="q" value="{{ q }}" placeholder="Search video path…"></div>
+  <div class="col-auto"><button class="btn btn-dark">Search</button></div>
+</form>
+<div class="card p-3">
+<table class="table table-sm table-striped data-table">
+  <thead><tr><th>Path</th><th>Ext</th><th>Size</th></tr></thead>
+  <tbody>
+  {% for v in videos %}
+    <tr>
+      <td class="path-cell" title="{{ v.path }}">{{ v.path }}</td>
+      <td>{{ v.ext }}</td>
+      <td>{{ v.size_bytes|fmt_size }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+{% endblock %}

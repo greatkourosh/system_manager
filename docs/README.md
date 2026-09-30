@@ -46,7 +46,7 @@ each time you need to log in. `/health` is the only unauthenticated endpoint.
   - `auth` — access-code auth + approved actions + SQLite audit
   - `connectivity` — opt-in gateway → DNS → HTTPS diagnostics (reuses `server.py` probes)
   - `notifier` — background thread that announces each newly-appearing condition once via `notify-send`
-  - `organizer` — mounts the sibling folder_organizer app under `/organizer`
+  - `organizer` — media organizer blueprint under `/organizer`; reads its JSON from the bind-mounted `../folder_organizer`
   - `inventory` — hardware inventory (SQLite store, CRUD + export)
   - `packages` — the host's upgradable apt set, read-only; renders the commands, runs none
 - **Templates/static** under `templates/`, `static/` (Jinja, vanilla JS/CSS)

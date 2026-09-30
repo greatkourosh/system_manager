@@ -1,0 +1,46 @@
+{% extends "organizer/base.html" %}
+{% block title %}Programs{% endblock %}
+{% block content %}
+<h4 class="mb-3">Programs &amp; installers <span class="text-muted small">{{ "{:,}".format(total) }} matching files (showing {{ first }}–{{ last }})</span></h4>
+<form class="row g-2 mb-3" method="get">
+  <div class="col-md-6">
+    <label class="form-label" for="program-search">Search path</label>
+    <input id="program-search" class="form-control" name="q" value="{{ q }}" placeholder="Search installer path…">
+  </div>
+  <div class="col-md-3">
+    <label class="form-label" for="program-ext">Extension</label>
+    <select id="program-ext" class="form-select" name="ext">
+      <option value="">All extensions</option>
+      {% if ext and ext not in extensions %}<option value="{{ ext }}" selected>{{ ext }}</option>{% endif %}
+      {% for choice in extensions %}<option value="{{ choice }}" {% if ext == choice %}selected{% endif %}>{{ choice }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="col-auto align-self-end"><button class="btn btn-dark">Search</button></div>
+</form>
+<form class="mb-3" method="get" action="{{ url_for('organizer.organizer_api.programs_export_csv') }}">
+  <input type="hidden" name="q" value="{{ q }}">
+  <input type="hidden" name="ext" value="{{ ext }}">
+  <button class="btn btn-outline-dark" type="submit">Download CSV ({{ "{:,}".format(total) }} matching)</button>
+</form>
+<div class="card p-3">
+<table class="table table-sm table-striped data-table">
+  <thead><tr><th>Path</th><th>Ext</th><th>Size</th></tr></thead>
+  <tbody>
+  {% for p in programs %}
+    <tr>
+      <td class="path-cell" title="{{ p.path }}">{{ p.path }}</td>
+      <td>{{ p.ext }}</td>
+      <td>{{ p.size_bytes|fmt_size }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="3" class="text-muted text-center">No programs match your filters.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<nav class="d-flex gap-3 align-items-center justify-content-center my-3" aria-label="Programs pagination">
+  {% if page > 0 %}<a class="btn btn-outline-secondary" rel="prev" href="{{ url_for('organizer.organizer_api.programs_page', q=q, ext=ext, page=page-1) }}">Previous</a>{% endif %}
+  <span>Page {{ page + 1 }} of {{ pages }}</span>
+  {% if page + 1 < pages %}<a class="btn btn-outline-secondary" rel="next" href="{{ url_for('organizer.organizer_api.programs_page', q=q, ext=ext, page=page+1) }}">Next</a>{% endif %}
+</nav>
+{% endblock %}

@@ -1,0 +1,45 @@
+{% extends "organizer/base.html" %}
+{% block title %}Cleanup{% endblock %}
+{% block content %}
+<h4 class="mb-1">Cleanup Proposal <span class="text-muted small">{{ today }}</span></h4>
+<p class="text-muted">
+  {{ p.safe_groups }} safe groups ({{ p.safe_redundant_bytes|gb }}) · {{ p.review_groups }} review groups ({{ p.review_redundant_bytes|gb }}).
+  Nothing deleted yet — confirm in chat first. Green = keep, red = suggested delete.
+</p>
+
+<ul class="nav nav-pills mb-3">
+  <li class="nav-item"><a class="nav-link {% if risk=='safe' %}active{% endif %}" href="{{ url_for('organizer.organizer_api.cleanup_page', risk='safe') }}">Safe</a></li>
+  <li class="nav-item"><a class="nav-link {% if risk=='review' %}active{% endif %}" href="{{ url_for('organizer.organizer_api.cleanup_page', risk='review') }}">Review</a></li>
+  <li class="nav-item"><a class="nav-link {% if risk=='all' %}active{% endif %}" href="{{ url_for('organizer.organizer_api.cleanup_page', risk='all') }}">All</a></li>
+</ul>
+
+<form class="row g-2 mb-3" method="get">
+  <input type="hidden" name="risk" value="{{ risk }}">
+  <div class="col-md-6"><input class="form-control" name="q" value="{{ q }}" placeholder="Filter paths…"></div>
+  <div class="col-auto"><button class="btn btn-dark">Filter</button></div>
+</form>
+
+<p class="text-muted small">{{ shown }} groups matched (showing first 200)</p>
+
+<div class="card p-3">
+<table class="table table-sm table-hover data-table">
+  <thead><tr><th>Risk</th><th>Category</th><th>Size</th><th>Wasted</th><th>Keep / Delete</th></tr></thead>
+  <tbody>
+  {% for g in groups %}
+    <tr>
+      <td><span class="badge {% if g.risk=='safe' %}bg-success{% else %}bg-warning text-dark{% endif %}">{{ g.risk }}</span></td>
+      <td>{{ g.category }}</td>
+      <td>{{ g.size_bytes|fmt_size }}</td>
+      <td class="text-danger">{{ g.redundant_bytes|fmt_size }}</td>
+      <td>
+        <div class="path-cell text-success" title="{{ g.keep }}">KEEP {{ g.keep }}</div>
+        {% for d in g.delete %}
+          <div class="path-cell text-danger" title="{{ d }}">DEL&nbsp; {{ d }}</div>
+        {% endfor %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

@@ -23,11 +23,7 @@
       <a href="{{ url_for('index') }}">Dashboard</a>
       {% for m in modules %}
         {% if m.available %}
-        {% if m.url == 'organizer.proxy' %}
-        <a href="{{ url_for('organizer.proxy', subpath='') }}">{{ m.name }}</a>
-        {% else %}
         <a href="{{ url_for(m.url) }}">{{ m.name }}</a>
-        {% endif %}
         {% endif %}
       {% endfor %}
       <a href="{{ url_for('modules_page') }}">Modules</a>

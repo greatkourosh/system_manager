@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en" data-bs-theme="{{ theme }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Media Organizer{% endblock %}</title>
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body { background: var(--bs-body-bg); }
+    .navbar-brand { font-weight: 700; }
+    .card { border: 0; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+    [data-bs-theme="dark"] .card { box-shadow: 0 1px 3px rgba(0,0,0,.6); }
+    [data-bs-theme="dark"] .del-sugg { background: rgba(220,53,69,.15); }
+    [data-bs-theme="dark"] .keep-sugg { background: rgba(25,135,84,.12); }
+    .stat-num { font-size: 1.6rem; font-weight: 700; }
+    table.data-table { font-size: .85rem; }
+    .path-cell { max-width: 520px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+    .badge-cat { text-transform: capitalize; }
+    .theme-toggle { font-size: 1.05rem; line-height: 1; }
+    .nav-toggle-btn { display: none; border: 1px solid rgba(255,255,255,.4); background: transparent; color: #fff; border-radius: .25rem; padding: .15rem .5rem; font-size: 1.1rem; line-height: 1.2; }
+    @media (max-width: 991.98px) {
+      .nav-toggle-btn { display: inline-block; }
+      .navbar > .container-fluid { flex-wrap: wrap; }
+      .navbar-nav { display: none; flex-basis: 100%; }
+      .navbar-nav.open { display: flex; }
+    }
+  </style>
+</head>
+<body>
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
+  <div class="container-fluid">
+    <a class="navbar-brand" href="{{ url_for('organizer.organizer_api.index') }}">Media Organizer</a>
+    <div class="navbar-nav">
+      <a class="nav-link" href="{{ url_for('organizer.organizer_api.index') }}">Dashboard</a>
+      <a class="nav-link" href="{{ url_for('organizer.organizer_api.scan_page') }}">Scan & Duplicates</a>
+      <a class="nav-link" href="{{ url_for('organizer.organizer_api.cleanup_page') }}">Cleanup</a>
+      <a class="nav-link fw-bold" href="{{ url_for('organizer.organizer_api.select_page') }}">Select &amp; Organize</a>
+      <a class="nav-link" href="{{ url_for('organizer.organizer_api.music_page') }}">Music</a>
+      <a class="nav-link" href="{{ url_for('organizer.organizer_api.music_tags_page') }}">Music Tags</a>
+      <a class="nav-link" href="{{ url_for('organizer.organizer_api.folders_page') }}">Folder Fix</a>
+      <a class="nav-link" href="{{ url_for('organizer.organizer_api.skipped_page') }}">Skipped Folders</a>
+      <a class="nav-link" href="{{ url_for('organizer.organizer_api.videos_page') }}">Videos</a>
+      <a class="nav-link" href="{{ url_for('organizer.organizer_api.programs_page') }}">Programs</a>
+    </div>
+    <div class="ms-auto d-flex gap-2">
+      <button class="nav-toggle-btn" id="navToggle"
+              title="Menu" aria-label="Menu" aria-expanded="false">☰</button>
+      <button class="btn btn-sm btn-outline-light theme-toggle"
+              title="Toggle light/dark"
+              onclick="toggleTheme()">{{ '☀️' if theme == 'dark' else '🌙' }}</button>
+    </div>
+  </div>
+</nav>
+<script>
+// url_for cannot be used inside a JS string, so the API endpoints are built
+// here in Jinja and read from U.<name> by the pages that call them. Keys match
+// the route they name, so a renamed route breaks the page rather than silently
+// requesting a 404.
+const U = {
+  'api/folderfix/accept': {{ url_for('organizer.organizer_api.api_ff_accept') | tojson }},
+  'api/folderfix/edit': {{ url_for('organizer.organizer_api.api_ff_edit') | tojson }},
+  'api/folderfix/export': {{ url_for('organizer.organizer_api.api_ff_export') | tojson }},
+  'api/selection/set-group': {{ url_for('organizer.organizer_api.api_sel_set_group') | tojson }},
+  'api/selection/decide': {{ url_for('organizer.organizer_api.api_sel_decide') | tojson }},
+  'api/selection/bulk': {{ url_for('organizer.organizer_api.api_sel_bulk') | tojson }},
+  'api/selection/export': {{ url_for('organizer.organizer_api.api_sel_export') | tojson }},
+  'api/selection/export-decided': {{ url_for('organizer.organizer_api.api_sel_export_decided') | tojson }},
+  'api/skip-rules': {{ url_for('organizer.organizer_api.api_skip_rules') | tojson }},
+  'api/subtitles/queue': {{ url_for('organizer.organizer_api.api_subtitle_queue') | tojson }},
+  'api/subtitles/clear': {{ url_for('organizer.organizer_api.api_subtitle_clear') | tojson }},
+  'api/tags/propose': {{ url_for('organizer.organizer_api.api_tags_propose') | tojson }},
+  'api/tags/set-entry': {{ url_for('organizer.organizer_api.api_tags_set_entry') | tojson }},
+  'api/tags/bulk': {{ url_for('organizer.organizer_api.api_tags_bulk') | tojson }},
+  'api/tags/clear-plan': {{ url_for('organizer.organizer_api.api_tags_clear_plan') | tojson }},
+  'api/tags/export': {{ url_for('organizer.organizer_api.api_tags_export') | tojson }},
+  'api/tags/merge-mb': {{ url_for('organizer.organizer_api.api_tags_merge_mb') | tojson }},
+  'api/video/poster': {{ url_for('organizer.organizer_api.api_video_poster') | tojson }}
+};
+</script>
+<div class="container-fluid px-4">
+  {% block content %}{% endblock %}
+</div>
+<script>
+// No Bootstrap JS bundle is loaded, so the mobile menu is toggled directly.
+document.getElementById('navToggle').addEventListener('click', function () {
+  const nav = document.querySelector('.navbar-nav');
+  const open = nav.classList.toggle('open');
+  this.setAttribute('aria-expanded', open);
+});
+document.querySelector('.navbar-nav').addEventListener('click', function (e) {
+  if (e.target.matches('.nav-link')) this.classList.remove('open');
+});
+function toggleTheme() {
+  const next = document.documentElement.getAttribute('data-bs-theme') === 'dark' ? 'light' : 'dark';
+  document.cookie = `theme=${next};path=/;max-age=31536000;samesite=Lax`;
+  location.reload();
+}
+</script>
+</body>
+</html>

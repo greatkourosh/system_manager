@@ -1,0 +1,69 @@
+{% extends "organizer/base.html" %}
+{% block title %}Skipped Folders{% endblock %}
+{% block content %}
+<h4 class="mb-1">Skipped Folders
+  <span class="text-muted small">{{ rules|length }} rules</span>
+</h4>
+<p class="text-muted mb-3">
+  Files inside skipped folders are excluded from <strong>all deletion exports</strong>.
+  A rule covers one folder, either all file types or one extension.
+</p>
+
+<div class="card p-3 mb-4">
+  <h6>Add rule manually</h6>
+  <div class="row g-2 align-items-center">
+    <div class="col-md-6"><input id="addFolder" class="form-control form-control-sm" placeholder="Folder path, e.g. H:\projects"></div>
+    <div class="col-auto">
+      <select id="addExt" class="form-select form-select-sm">
+        <option value="">All file types</option>
+        <option value=".mp4">.mp4</option><option value=".mkv">.mkv</option><option value=".mp3">.mp3</option>
+        <option value=".jpg">.jpg</option><option value=".png">.png</option><option value=".exe">.exe</option>
+        <option value=".zip">.zip</option><option value=".pdf">.pdf</option>
+      </select>
+    </div>
+    <div class="col-auto"><button class="btn btn-sm btn-dark" onclick="addRule()">Add</button></div>
+  </div>
+</div>
+
+<div class="card p-3">
+  {% if not rules %}
+    <p class="text-muted mb-0">No skip rules yet. Use the 🚫 button next to any file on the
+    <a href="{{ url_for('organizer.organizer_api.select_page') }}">Select &amp; Organize</a> page, or add a folder above.</p>
+  {% else %}
+  <table class="table table-sm table-striped data-table align-middle">
+    <thead><tr><th>#</th><th>Folder</th><th>File type</th><th>Protects</th><th>Added</th><th></th></tr></thead>
+    <tbody>
+    {% for r in rules %}
+      <tr>
+        <td>{{ loop.index }}</td>
+        <td class="path-cell" title="{{ r.folder }}">{{ r.folder }}</td>
+        <td>{% if r.ext %}<span class="badge bg-info text-dark">{{ r.ext }}</span>{% else %}<span class="badge bg-dark">all types</span>{% endif %}</td>
+        <td>{{ r.blocked_files }} files · {{ r.blocked_bytes|gb }}</td>
+        <td class="text-muted small">{{ r.added }}</td>
+        <td><button class="btn btn-sm btn-outline-danger" onclick="removeRule({{ r.index }})">Remove</button></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</div>
+
+<script>
+async function addRule() {
+  const folder = document.getElementById('addFolder').value.trim();
+  const ext = document.getElementById('addExt').value || null;
+  if (!folder) { alert('Enter a folder path'); return; }
+  const r = await fetch(U['api/skip-rules'], {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({folder: folder, ext: ext})});
+  const j = await r.json();
+  if (!j.ok) { alert('Failed: ' + j.error); return; }
+  location.reload();
+}
+async function removeRule(idx) {
+  if (!confirm('Remove this skip rule? Its protected files become deletable again (only if they are marked).')) return;
+  await fetch(U['api/skip-rules'], {method:'DELETE', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({index: idx})});
+  location.reload();
+}
+</script>
+{% endblock %}

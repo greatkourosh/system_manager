@@ -1,0 +1,122 @@
+{% extends "organizer/base.html" %}
+{% block title %}Folder Fix{% endblock %}
+{% block content %}
+<h4 class="mb-1">Folder Name Fix
+  <span class="text-muted small">{{ ffp.count }} proposals across all areas · {{ accepted }} accepted</span>
+</h4>
+<p class="text-muted mb-3">
+  Conventions: <b>music</b> <code>Year - Album</code> · <b>videos</b> <code>Year - Title - Genres rating pop</code> /
+  <code>Title Sxx of yy</code> · <b>learning</b> course titles · <b>programs</b> site-tag/dot cleanup ·
+  <b>pictures</b> <code>YYYY - Event</code> · <b>documents</b> light cleanup only.
+</p>
+
+<div class="card p-2 mb-3">
+  <div class="row g-2 align-items-center">
+    <div class="col-md-3"><input id="filterBox" class="form-control form-control-sm" placeholder="Filter…" value="{{ q }}"></div>
+    <div class="col-auto">
+      <select id="areaSel" class="form-select form-select-sm" onchange="applyFilter()">
+        <option value="all" {% if area=='all' %}selected{% endif %}>All areas</option>
+        {% for a in areas %}<option value="{{ a }}" {% if area==a %}selected{% endif %}>{{ a }} ({{ counts[a] }} pending)</option>{% endfor %}
+      </select>
+    </div>
+    <div class="col-auto">
+      <select id="statusSel" class="form-select form-select-sm" onchange="applyFilter()">
+        <option value="pending" {% if status=='pending' %}selected{% endif %}>Pending</option>
+        <option value="accepted" {% if status=='accepted' %}selected{% endif %}>Accepted</option>
+        <option value="all" {% if status=='all' %}selected{% endif %}>All</option>
+      </select>
+    </div>
+    <div class="col-auto"><button class="btn btn-sm btn-dark" onclick="applyFilter()">Apply</button></div>
+    <div class="col-auto ms-auto">
+      <button class="btn btn-sm btn-success" onclick="acceptAllShown()">Accept all shown</button>
+      <button class="btn btn-sm btn-danger" onclick="exportFF()">Export rename script</button>
+    </div>
+  </div>
+</div>
+
+<div id="props">
+{% for p in props %}
+  <div class="card p-2 mb-2" data-id="{{ p.id }}">
+    <div class="d-flex align-items-start gap-2">
+      <input type="checkbox" class="form-check-input mt-1" {% if p.status=='accepted' %}checked{% endif %}
+             onchange="accept('{{ p.id|e }}', this.checked)">
+      <div class="flex-grow-1">
+        <span class="badge bg-secondary">{{ p.area }}</span>
+        {% if p.artist %}<span class="badge bg-info text-dark">{{ p.artist }}</span>{% endif %}
+        {% if p.tmdb_id %}<span class="badge bg-info text-dark">TMDB {{ p.tmdb_id }}</span>{% endif %}
+        <span class="text-muted small">{{ p.files }} files</span>
+        <div class="small mt-1"><span class="text-muted">current:</span> <code class="path-code">{{ p.current }}</code></div>
+        <div class="d-flex align-items-center gap-2">
+          <span class="small text-muted">proposed:</span>
+          <input class="form-control form-control-sm prop-input" style="max-width:540px;"
+                 value="{{ p.proposed }}" onchange="editProp('{{ p.id|e }}', this)">
+        </div>
+        <div class="mt-1">{% for prob in p.problems %}<span class="badge bg-warning text-dark me-1">{{ prob }}</span>{% endfor %}</div>
+      </div>
+      <div class="text-muted small text-nowrap" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;" title="{{ p.dir }}">{{ p.dir }}</div>
+    </div>
+  </div>
+{% endfor %}
+</div>
+
+<div id="modalHost"></div>
+<style>.path-code { font-size: .78rem; word-break: break-all; }</style>
+
+<script>
+function applyFilter() {
+  const p = new URLSearchParams();
+  p.set('q', document.getElementById('filterBox').value);
+  p.set('area', document.getElementById('areaSel').value);
+  p.set('status', document.getElementById('statusSel').value);
+  location.search = p.toString();
+}
+async function post(url, body) {
+  const r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+  return r.json();
+}
+async function accept(id, on) { await post(U['api/folderfix/accept'], {id: id, accepted: on}); }
+async function editProp(input) {
+  const id = input.closest('.card').dataset.id;
+  const j = await post(U['api/folderfix/edit'], {id: id, proposed: input.value});
+  if (!j.ok) { alert('Invalid: ' + j.error); location.reload(); }
+}
+async function acceptAllShown() {
+  const ids = [...document.querySelectorAll('#props .card')].map(c => c.dataset.id);
+  if (!confirm(`Accept all ${ids.length} shown proposals?`)) return;
+  for (const id of ids) await post(U['api/folderfix/accept'], {id: id, accepted: true});
+  location.reload();
+}
+async function exportFF() {
+  const area = document.getElementById('areaSel').value;
+  const j = await post(U['api/folderfix/export'], {area: area == 'all' ? null : area});
+  if (!j.ok) { alert('Failed'); return; }
+  document.getElementById('modalHost').innerHTML = `
+  <div class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" style="background:rgba(0,0,0,.5);z-index:2000;">
+    <div class="card p-4 shadow" style="max-width:640px;width:92%;">
+      <h5 class="mb-2">Rename script ready</h5>
+      <p><strong>${j.count}</strong> accepted folders${area !== 'all' ? ` in <b>${area}</b>` : ''}</p>
+      <label class="form-label small text-muted mb-1">1) Dry-run</label>
+      <div class="input-group input-group-sm mb-2">
+        <input class="form-control font-monospace" id="cmdDry" readonly value="${j.dry_command.replace(/"/g,'&quot;')}">
+        <button class="btn btn-dark" onclick="copyVal('cmdDry')">Copy</button>
+      </div>
+      <label class="form-label small text-muted mb-1">2) Apply</label>
+      <div class="input-group input-group-sm mb-3">
+        <input class="form-control font-monospace" id="cmdApply" readonly value="${j.apply_command.replace(/"/g,'&quot;')}">
+        <button class="btn btn-dark" onclick="copyVal('cmdApply')">Copy</button>
+      </div>
+      <div class="small text-muted mb-3">Log: commands_to_run/folder_fix_log.txt. After applying, re-run <code>python3 folder_fix.py</code> and rebuild the relevant catalogs.</div>
+      <div class="text-end"><button class="btn btn-sm btn-primary" onclick="this.closest('.position-fixed').remove()">Close</button></div>
+    </div>
+  </div>`;
+}
+function copyVal(id) {
+  const el = document.getElementById(id);
+  el.select();
+  navigator.clipboard.writeText(el.value).then(() => {
+    const btn = el.nextElementSibling, old = btn.textContent;
+    btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = old, 1200);
+  });
+}
+</script>
+{% endblock %}

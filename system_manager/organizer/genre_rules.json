@@ -1,0 +1,15 @@
+{
+  "rules": [
+    {"match": "\\Games\\", "genre": "Game Soundtrack", "scope": "path"},
+    {"match": ["santoor", "santur", "setar", "tar ", "daf", "ney", "kamancheh", "traditional", "sonnati", "سنتی"], "genre": "Persian Traditional", "scope": "path"},
+    {"match": ["maddahi", "nohe", "مداحی", "نوحه", "maddah"], "genre": "Persian Religious", "scope": "path"},
+    {"match": ["podcast", "learning", "آموزش", "سمینار", "همایش", "lecture", "درس"], "genre": "Podcast", "scope": "path"},
+    {"match": ["rock", "metal", "grunge", "punk"], "genre": "International Rock", "scope": "path"},
+    {"match": ["classical", "bach", "mozart", "beethoven", "vivaldi", "chopin", "sonata", "symphony", "concerto"], "genre": "International Classical", "scope": "path"},
+    {"match": ["jazz", "blues"], "genre": "International Jazz", "scope": "path"},
+    {"match": ["pop", "پاپ"], "genre": null, "scope": "path", "script_aware": true},
+    {"match": ["instrumental", "بی کلام", "bikalam"], "genre": null, "scope": "path", "script_aware": true, "base": "Instrumental"}
+  ],
+  "script_prefixes": {"fa": "Persian ", "default": "International "},
+  "fallback": "Unknown"
+}

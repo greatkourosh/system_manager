@@ -1,0 +1,355 @@
+{% extends "organizer/base.html" %}
+{% block title %}Select Duplicates{% endblock %}
+{% block content %}
+<h4 class="mb-1">Duplicate Selector
+  <span class="text-muted small">{{ sel_total_groups }} groups · {{ sel_files }} files marked DELETE · {{ sel_bytes|gb }} reclaimable</span>
+</h4>
+<p class="text-muted mb-2">
+  Tick the copies you want gone. Suggestions pre-filled: <span class="text-danger">red rows = suggested delete</span>,
+  <span class="text-success">green = suggested keep</span>. Selection saves automatically. Export when done.
+</p>
+
+<div class="card p-2 mb-3">
+  <div class="row g-2 align-items-center">
+    <div class="col-md-3">
+      <input id="filterBox" class="form-control form-control-sm" placeholder="Filter paths…" value="{{ q }}">
+    </div>
+    <div class="col-auto">
+      <select id="catSel" class="form-select form-select-sm" onchange="applyFilter(0)">
+        <option value="all" {% if cat=='all' %}selected{% endif %}>All media types</option>
+        {% for c, n in cat_counts %}
+        <option value="{{ c }}" {% if cat==c %}selected{% endif %}>{{ c }} ({{ n }})</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-auto">
+      <select id="extSel" class="form-select form-select-sm" onchange="applyFilter(0)">
+        <option value="all" {% if ext=='all' %}selected{% endif %}>All extensions</option>
+        {% for e, n in ext_counts %}
+        <option value="{{ e }}" {% if ext==e %}selected{% endif %}>{{ e }} ({{ n }})</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-auto">
+      <select id="riskSel" class="form-select form-select-sm" onchange="applyFilter(0)">
+        <option value="all" {% if risk=='all' %}selected{% endif %}>All risk</option>
+        <option value="safe" {% if risk=='safe' %}selected{% endif %}>Safe only</option>
+        <option value="review" {% if risk=='review' %}selected{% endif %}>Review only</option>
+      </select>
+    </div>
+    <div class="col-auto">
+      <select id="stateSel" class="form-select form-select-sm" onchange="applyFilter(0)">
+        <option value="all" {% if state=='all' %}selected{% endif %}>Any decision</option>
+        <option value="decided" {% if state=='decided' %}selected{% endif %}>Reviewed</option>
+        <option value="undecided" {% if state=='undecided' %}selected{% endif %}>Not reviewed</option>
+      </select>
+    </div>
+    <div class="col-auto">
+      <select id="skipSel" class="form-select form-select-sm" onchange="applyFilter(0)">
+        <option value="all" {% if skipf=='all' %}selected{% endif %}>With or without skips</option>
+        <option value="noskip" {% if skipf=='noskip' %}selected{% endif %}>No skipped copies</option>
+        <option value="skipped" {% if skipf=='skipped' %}selected{% endif %}>Has skipped copies</option>
+      </select>
+    </div>
+    <div class="col-auto"><button class="btn btn-sm btn-dark" onclick="applyFilter(0)">Apply</button></div>
+    <div class="col-auto"><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('organizer.organizer_api.select_page') }}">Reset</a></div>
+    <div class="col-auto ms-auto">
+      <button class="btn btn-sm btn-outline-primary" onclick="bulkPage('mark-reviewed')">Mark page reviewed</button>
+      <button class="btn btn-sm btn-success" onclick="bulkView('accept-suggested')">Accept all suggested (filtered)</button>
+      <button class="btn btn-sm btn-outline-primary" onclick="bulkView('mark-reviewed')">Mark all reviewed (filtered)</button>
+      <button class="btn btn-sm btn-outline-secondary" onclick="bulkView('clear-marks')">Clear marks (filtered)</button>
+      <button class="btn btn-sm btn-danger" onclick="exportDecided()">Run cleanup (decided)</button>
+    </div>
+  </div>
+  <div class="mt-2 small text-muted">
+    Filtered view: <strong>{{ total_groups }}</strong> groups · {{ view_files }} files marked · {{ view_bytes|gb }}
+    &nbsp;|&nbsp; whole dataset: {{ sel_total_groups }} groups · {{ sel_files }} files · {{ sel_bytes|gb }}
+  </div>
+</div>
+
+<div id="groups">
+{% for g in groups %}
+  <div class="card p-2 mb-2 group-card {% if g.fully_skipped %}fully-skipped{% endif %}" data-gid="{{ g.gid }}">
+    <div class="d-flex align-items-start">
+      <div class="form-check ms-1 me-2 mt-1">
+        <input class="form-check-input grp-check" type="checkbox" id="grp-{{ g.gid }}"
+               {% if g.decided %}checked{% endif %} onchange="grpToggle('{{ g.gid }}', this.checked)">
+        <label class="form-check-label small text-muted" for="grp-{{ g.gid }}">decided</label>
+      </div>
+      <div class="flex-grow-1">
+        <div class="d-flex flex-wrap gap-2 align-items-center mb-1">
+          <span class="badge {% if g.risk=='safe' %}bg-success{% else %}bg-warning text-dark{% endif %}">{{ g.risk }}</span>
+          <span class="badge bg-secondary">{{ g.category }}</span>
+          <span class="badge bg-info text-dark">{{ g.size_bytes|fmt_size }} each</span>
+          <span class="badge bg-danger">{{ g.selected_delete|length }}/{{ g.copies|length }} marked</span>
+          {% if g.has_skipped %}<span class="badge bg-dark">contains skipped copies</span>{% endif %}
+          {% if g.fully_skipped %}<span class="badge bg-dark">all deletable copies skipped</span>{% endif %}
+          <span class="text-muted small">sha {{ g.sha256 }}</span>
+          <span class="ms-auto d-flex gap-1">
+            <button class="btn btn-sm btn-outline-secondary py-0 px-1" title="Mark every copy in this group for deletion"
+                    onclick="grpSelectAll('{{ g.gid }}', true)">all</button>
+            <button class="btn btn-sm btn-outline-secondary py-0 px-1" title="Unmark every copy in this group"
+                    onclick="grpSelectAll('{{ g.gid }}', false)">none</button>
+          </span>
+        </div>
+        {% for c in g.copies %}
+        <div class="form-check copy-row {% if c.suggested_delete %}del-sugg{% else %}keep-sugg{% endif %} {% if c.skipped %}skipped-row{% endif %}"
+             onclick="rowToggle(event, this)">
+          <input class="form-check-input copy-check" type="checkbox" data-path="{{ c.path }}"
+                 {% if c.marked %}checked{% endif %} {% if c.skipped %}disabled title="folder skipped"{% endif %} onchange="copyChange('{{ g.gid }}')">
+          <label class="form-check-label path-lbl" title="{{ c.path }}">
+            {% if c.skipped %}<span class="badge bg-dark">SKIPPED</span>
+            {% elif c.suggested_delete %}<span class="text-danger">DEL</span>{% else %}<span class="text-success">KEEP</span>{% endif %}
+            <code class="path-code">{{ c.path }}</code>
+          </label>
+          <button class="btn btn-sm btn-outline-secondary border-0 py-0 px-1 ms-1" title="Skip this folder from deletions"
+                  data-path="{{ c.path }}" data-ext="{{ g.ext }}"
+                  onclick="skipDialog(this)">🚫</button>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+{% endfor %}
+</div>
+
+<nav class="d-flex gap-2 align-items-center my-3 flex-wrap">
+  {% if page > 0 %}<a class="btn btn-sm btn-outline-secondary" href="#" onclick="applyFilter({{ page-1 }});return false;">&larr; Prev</a>{% endif %}
+  <span class="text-muted small">page {{ page+1 }} / {{ pages }} ({{ total_groups }} groups)</span>
+  {% if page+1 < pages %}<a class="btn btn-sm btn-outline-secondary" href="#" onclick="applyFilter({{ page+1 }});return false;">Next &rarr;</a>{% endif %}
+  <button class="btn btn-sm btn-outline-primary" onclick="bulkPage('mark-reviewed')">✓ Mark page reviewed</button>
+  <span class="ms-auto d-flex gap-2">
+    <a class="btn btn-sm btn-outline-secondary" href="#top" onclick="window.scrollTo({top:0,behavior:'smooth'});return false;">&uarr; Top</a>
+    <a class="btn btn-sm btn-outline-secondary" href="#bottom" onclick="window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'});return false;">&darr; Bottom</a>
+  </span>
+</nav>
+
+<div class="position-fixed bottom-0 end-0 p-3" style="z-index: 1050;">
+  <div class="card p-3 shadow">
+    <div class="text-muted small mb-1">{{ sel_files }} files · {{ sel_bytes|gb }} marked for deletion</div>
+    <div class="d-flex gap-2">
+      <button class="btn btn-outline-secondary btn-sm" onclick="exportSel()">Export list</button>
+      <button class="btn btn-success btn-sm" onclick="window.open('/cleanup','_blank')">Old view</button>
+    </div>
+  </div>
+</div>
+
+<style>
+  .path-code { font-size: .78rem; word-break: break-all; }
+  .del-sugg { background: rgba(220,53,69,.06); border-radius: 4px; }
+  .keep-sugg { background: rgba(25,135,84,.05); border-radius: 4px; }
+  .copy-row { padding: 1px 4px; display: flex; align-items: center; cursor: pointer; user-select: none; }
+  .copy-row.skipped-row { cursor: not-allowed; }
+  .copy-row .form-check-input { margin-right: .5rem; }
+  .copy-row .path-lbl { flex: 1; }
+  .skipped-row { opacity: .5; }
+  .group-card.fully-skipped { opacity: .5; }
+  .group-card.decided { opacity: .55; }
+  .group-card.decided .grp-check + label { color: #198754 !important; font-weight: 600; }
+</style>
+
+<div id="skipModalHost"></div>
+
+<div class="position-fixed end-0 top-50 translate-middle-y d-flex flex-column gap-2 me-2" style="z-index:1040;">
+  <button class="btn btn-sm btn-secondary theme-aware" title="Jump to top"
+          onclick="window.scrollTo({top:0,behavior:'smooth'})">&uarr;</button>
+  <button class="btn btn-sm btn-secondary theme-aware" title="Jump to bottom"
+          onclick="window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'})">&darr;</button>
+</div>
+
+<script>
+function skipDialog(btn) {
+  const filePath = btn.dataset.path;
+  const ext = btn.dataset.ext || null;
+  const folder = filePath.replace(/[\\/][^\\/]*$/, '');
+  const host = document.getElementById('skipModalHost');
+  host.innerHTML = `
+  <div class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" style="background:rgba(0,0,0,.5);z-index:2000;">
+    <div class="card p-4 shadow" style="max-width:560px;width:92%;">
+      <h5 class="mb-2">Skip folder from deletions</h5>
+      <p class="small text-muted mb-1">Folder:</p>
+      <p><code class="path-code" id="skipFolder">${folder}</code></p>
+      ${ext ? `<p class="small text-muted mb-1">This file's type: <span class="badge bg-info text-dark">${ext}</span></p>` : ''}
+      <div class="d-grid gap-2 my-3">
+        <button class="btn btn-dark text-start" id="skipA">
+          <strong>Option A</strong> — skip this folder for ALL file types
+        </button>
+        <button class="btn btn-outline-secondary text-start" id="skipB" ${ext ? '' : 'disabled title="no extension on this file"'}>
+          <strong>Option B</strong> — skip only <strong>${ext || '(no ext)'}</strong> files in this folder
+        </button>
+      </div>
+      <p class="small text-muted mb-0">Skipped files are excluded from all deletion lists and can be managed on the
+      <a href="{{ url_for('organizer.organizer_api.skipped_page') }}" target="_blank">Skipped Folders</a> page.</p>
+      <div class="text-end mt-2"><button class="btn btn-sm btn-secondary" onclick="this.closest('.position-fixed').remove()">Cancel</button></div>
+    </div>
+  </div>`;
+  document.getElementById('skipA').onclick = () => addSkip(folder, null);
+  const b = document.getElementById('skipB');
+  if (ext) b.onclick = () => addSkip(folder, ext);
+}
+
+async function addSkip(folder, ext) {
+  const r = await fetch(U['api/skip-rules'], {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({folder: folder, ext: ext})});
+  const j = await r.json();
+  if (!j.ok) { alert('Failed: ' + j.error); return; }
+  document.getElementById('skipModalHost').innerHTML = '';
+  location.reload();
+}
+</script>
+
+<script>
+const qs = new URLSearchParams(location.search);
+function applyFilter(page) {
+  const p = new URLSearchParams();
+  p.set('page', page);
+  p.set('q', document.getElementById('filterBox').value);
+  p.set('cat', document.getElementById('catSel').value);
+  p.set('ext', document.getElementById('extSel').value);
+  p.set('risk', document.getElementById('riskSel').value);
+  p.set('state', document.getElementById('stateSel').value);
+  p.set('skip', document.getElementById('skipSel').value);
+  location.search = p.toString();
+}
+
+async function post(url, body) {
+  const r = await fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  if (!r.ok) console.error('save failed', await r.text());
+  updateBadge();
+}
+
+function copyChange(gid) {
+  const card = document.querySelector(`.group-card[data-gid="${gid}"]`);
+  const paths = [...card.querySelectorAll('.copy-check')].map(c => ({path: c.dataset.path, marked: c.checked}));
+  const marked = paths.filter(p => p.marked);
+  card.querySelector('.badge.bg-danger').textContent = `${marked.length}/${paths.length} marked`;
+  post(U['api/selection/set-group'], {gid: gid, marks: paths});
+}
+
+function rowToggle(event, row) {
+  // clicking anywhere on the row toggles its checkbox; skip clicks that already hit the
+  // checkbox itself (browser toggles it), the label (same), or the skip button
+  if (event.target.closest('input, label, button')) return;
+  const cb = row.querySelector('.copy-check');
+  if (cb.disabled) return;
+  cb.checked = !cb.checked;
+  cb.dispatchEvent(new Event('change', {bubbles: true}));
+}
+
+function grpSelectAll(gid, on) {
+  const card = document.querySelector(`.group-card[data-gid="${gid}"]`);
+  card.querySelectorAll('.copy-check:not(:disabled)').forEach(c => { c.checked = on; });
+  copyChange(gid);
+}
+
+function grpToggle(gid, checked) {
+  const card = document.querySelector(`.group-card[data-gid="${gid}"]`);
+  card.classList.toggle('decided', checked);
+  post(U['api/selection/decide'], {gid: gid, decided: checked});
+}
+
+function currentFilters() {
+  return {
+    q: document.getElementById('filterBox').value,
+    cat: document.getElementById('catSel').value,
+    ext: document.getElementById('extSel').value,
+    risk: document.getElementById('riskSel').value,
+    state: document.getElementById('stateSel').value,
+    skip: document.getElementById('skipSel').value,
+  };
+}
+
+async function bulkPage(mode) {
+  const gids = [...document.querySelectorAll('.group-card')].map(c => c.dataset.gid);
+  await post(U['api/selection/bulk'], {mode: mode, gids: gids});
+  location.reload();
+}
+
+async function bulkView(mode) {
+  const f = currentFilters();
+  const labels = {
+    'accept-suggested': `accept the suggested deletions and mark REVIEWED for ALL ${'{{ total_groups }}'} groups matching your filters`,
+    'mark-reviewed': `mark ALL ${'{{ total_groups }}'} groups matching your filters as reviewed`,
+    'clear-marks': `clear the deletion marks of ALL ${'{{ total_groups }}'} groups matching your filters`,
+  };
+  if (!confirm(`This will ${labels[mode]}.\n\nContinue?`)) return;
+  await post(U['api/selection/bulk'], {mode: mode, filters: f});
+  location.reload();
+}
+
+async function bulk(mode) {
+  const gid = [...document.querySelectorAll('.group-card')].map(c => c.dataset.gid);
+  await post(U['api/selection/bulk'], {mode: mode, gids: gid});
+  location.reload();
+}
+
+async function exportSel() {
+  const r = await fetch(U['api/selection/export'], {method: 'POST'});
+  const j = await r.json();
+  alert(`Exported ${j.files} files (${j.gb} GB) to ${j.file}`);
+}
+
+async function exportDecided() {
+  const f = currentFilters();
+  if (!confirm(`Create cleanup script for all REVIEWED groups matching your filters?\n\nUndecided groups are skipped. The script is NOT executed automatically — you run it yourself.\n\nContinue?`)) return;
+  const r = await fetch(U['api/selection/export-decided'], {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({filters: f})
+  });
+  const j = await r.json();
+  if (!j.ok) { alert('Export failed: ' + (j.error || 'unknown')); return; }
+  showResult(j);
+}
+
+function showResult(j) {
+  const overlay = document.createElement('div');
+  overlay.className = 'position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center';
+  overlay.style.cssText = 'background:rgba(0,0,0,.5);z-index:2000;';
+  overlay.innerHTML = `
+  <div class="card p-4 shadow" style="max-width:640px;width:92%;">
+    <h5 class="mb-2">Cleanup list ready</h5>
+    <p class="mb-2">
+      <strong>${j.files}</strong> files from <strong>${j.groups}</strong> reviewed groups
+      (<strong>${j.gb} GB</strong>)
+      ${j.skipped_undecided ? `<span class="text-warning">· ${j.skipped_undecided} undecided skipped</span>` : ''}
+    </p>
+    <label class="form-label small text-muted mb-1">Deletion list</label>
+    <div class="input-group input-group-sm mb-3">
+      <input class="form-control" id="resFile" readonly value="${j.file}">
+      <button class="btn btn-outline-secondary" onclick="copyVal('resFile')">Copy</button>
+    </div>
+    <label class="form-label small text-muted mb-1">Run in PowerShell (click Copy, then paste in a terminal)</label>
+    <div class="input-group input-group-sm mb-3">
+      <input class="form-control font-monospace" id="resCmd" readonly value="${j.command.replace(/"/g, '&quot;')}">
+      <button class="btn btn-dark" onclick="copyVal('resCmd')">Copy</button>
+    </div>
+    <div class="small text-muted mb-3">Every deletion is logged to commands_to_run\\delete_log.txt.</div>
+    <div class="d-flex gap-2 justify-content-end">
+      <button class="btn btn-sm btn-outline-secondary" onclick="copyAll()">Copy all details</button>
+      <button class="btn btn-sm btn-primary" onclick="this.closest('.position-fixed').remove()">Close</button>
+    </div>
+  </div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+}
+
+function copyVal(id) {
+  const el = document.getElementById(id);
+  el.select();
+  navigator.clipboard.writeText(el.value).then(() => {
+    const btn = el.nextElementSibling;
+    const old = btn.textContent;
+    btn.textContent = 'Copied!';
+    setTimeout(() => btn.textContent = old, 1200);
+  });
+}
+
+function copyAll() {
+  const j = { file: document.getElementById('resFile').value, command: document.getElementById('resCmd').value };
+  navigator.clipboard.writeText(`List: ${j.file}\nCommand: ${j.command}`);
+}
+
+function updateBadge() {}
+document.addEventListener('keydown', e => { if (e.key === 'Enter') applyFilter(0); });
+</script>
+{% endblock %}

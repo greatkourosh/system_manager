@@ -8,7 +8,7 @@ from flask import Flask, current_app, jsonify, render_template, request
 from . import auth, status
 from .connectivity import ConnectivityStore, connectivity_blueprint
 from .notifier import Notifier, start_notifier
-from .organizer import ORGANIZER_PATH, is_available, organizer_blueprint
+from .organizer import is_available, organizer_blueprint
 from .inventory import inventory_blueprint, is_available as inventory_available
 from .journal import journal_blueprint, is_available as journal_available
 from .packages import packages_blueprint, is_available as packages_available
@@ -19,7 +19,6 @@ __all__ = ["create_app"]
 def create_app(config=None):
     app = Flask(__name__, template_folder="../templates", static_folder="../static")
     app.config.update(
-        ORGANIZER_PATH=ORGANIZER_PATH,
         DISABLE_AUTH=os.environ.get("DISABLE_AUTH", "0") == "1",
     )
     if config:
@@ -152,7 +151,7 @@ def modules():
             "name": "Folder Organizer",
             "summary": "Scan, deduplicate, tag and rename the media library.",
             "path": "folder_organizer",
-            "url": "organizer.proxy",
+            "url": "organizer.organizer_api.index",
             "available": is_available(),
             "tags": ["media", "dedupe", "tags"],
         },

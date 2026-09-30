@@ -52,11 +52,7 @@
     <div class="module-list">
       {% for m in modules %}
       {% if m.available %}
-      {% if m.url == 'organizer.proxy' %}
-      <a class="module" href="{{ url_for('organizer.proxy', subpath='') }}">
-      {% else %}
       <a class="module" href="{{ url_for(m.url) }}">
-      {% endif %}
       {% else %}
       <a class="module module-off" href="#">
       {% endif %}

@@ -1,0 +1,23 @@
+{% extends "organizer/base.html" %}
+{% block title %}Music{% endblock %}
+{% block content %}
+<h4 class="mb-3">Music <span class="text-muted small">{{ "{:,}".format(total) }} tracks</span></h4>
+<form class="row g-2 mb-3" method="get">
+  <div class="col-md-6"><input class="form-control" name="q" value="{{ q }}" placeholder="Search artist / track path…"></div>
+  <div class="col-auto"><button class="btn btn-dark">Search</button></div>
+</form>
+<div class="card p-3">
+<table class="table table-sm table-striped data-table">
+  <thead><tr><th>Artist / folder</th><th>Tracks</th><th>Size</th></tr></thead>
+  <tbody>
+  {% for artist, files in artists %}
+    <tr>
+      <td>{{ artist }}</td>
+      <td>{{ files|length }}</td>
+      <td>{{ files|sum(attribute='size_bytes')|fmt_size }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

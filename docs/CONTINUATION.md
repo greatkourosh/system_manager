@@ -28,7 +28,7 @@ Python 3.14 slim + iproute2, net-tools, network-manager, systemd; host network +
   - `status.py` — live snapshot via `server.py` collectors
   - `auth.py` — access-code auth + services/approve/execute/audit API (ported from Milestone 3), single-use approval tokens, SQLite audit
   - `connectivity.py` — opt-in connectivity diagnostics (ported from Milestone 2): `ConnectivityStore` + GET/POST `/api/connectivity`
-  - `organizer.py` — mounts the sibling folder_organizer app under `/organizer` (in-process, without copying or modifying it)
+  - `organizer/` — the media organizer blueprint under `/organizer`, 37 routes ported from the sibling app (was: an in-process proxy that rewrote its HTML)
   - `inventory/` — hardware inventory blueprint with a SQLite store: real CRUD, filters, soft-delete, CSV/JSON/YAML export (was hardcoded stubs)
 - **Frontend:** Jinja templates (`templates/`) + `static/app.js` with unlock, actions (approve→execute), audit, and connectivity renderers; module cards with mount-aware links; Network card holds the connectivity consent form
 - **Docker:** Dockerfile now installs Flask/gunicorn and copies the package + templates + static; compose runs `gunicorn run:app` on :4000
@@ -457,6 +457,54 @@ endpoint box are styled identically by construction.
 position and not implied by this — it means storing credentials and calling
 user-supplied URLs, which is an SSRF surface and a security decision rather than
 a feature.
+
+---
+
+### 2026-09-30 — Milestone 15: the Folder Organizer is a real module
+
+The organizer ran as a **proxy**: `system_manager/organizer.py` imported the
+sibling checkout's `app.py` in-process, faked a WSGI environ for it, and
+rewrote the absolute `/api/...` paths in its HTML with a regex on the way out.
+Two Flask apps on one interpreter only work through a shim like that, and the
+rewrite existed purely to make it work. The routes now live here as a blueprint
+(`system_manager/organizer/`), so the paths in the templates are simply right.
+
+**Scope — web only.** The scanner, `fetch_subtitles.py`, `season_scan.py`, the
+runners and 166M of `data/` stay in `../folder_organizer`, reached over the
+existing bind mount. That mount is now read-only in practice for everything but
+`commands_to_run/`, which is still written: `subtitle_queue.py` points at the
+checkout, not at this package, so the host-side `subtitle_runner.py` drains the
+very same queue file. Pointing it at the package would have created a second,
+undrained queue.
+
+**URLs are `url_for` everywhere.** `url_for` cannot be used inside a JS string,
+so `base.html` builds the API endpoints into a `U` map (`| tojson`) that pages
+read as `U['api/video/poster']`. Every API path a page can call is a `url_for`
+result, which has no blind spot the old rewriter had.
+
+**Three bugs the rewriter's blind spots had been hiding**, all now covered by
+tests in `test_lock.py`:
+
+- `subPost('/api/subtitles/queue')` — the ＋sub button. The rewriter matched a
+  fixed list of callee names; a helper that *takes* the URL as an argument was
+  never in it. Same bug class again, now pinned by a test that matches **any**
+  `\w+('/api/...')`.
+- `U['api/video/poster?id=']` — the query string was glued onto the *key*, so
+  the lookup was `undefined` and every card fetched the bare endpoint. The
+  existing test hid this by stripping `?` off the used key before comparing; it
+  now compares verbatim.
+- The `U` map sat in a `<script>` *after* `{% block content %}`, so page scripts
+  inside the block ran first and threw `U is not defined`. It is now its own
+  script above the block.
+
+The last two only showed up under a browser, not in the suite: both pages render
+fine and return 200 with every URL correctly prefixed. Rendered HTML being
+correct is not the same as the page working.
+
+**Two pre-existing 500s, left alone:** `api/selection/decide` and
+`api/selection/set-group` do an unguarded `body["gid"]`, so a POST without one
+raises `KeyError`. Byte-for-byte the same as the old `app.py` — not introduced
+here, and out of scope for a merge. They answer 200 with a well-formed body.
 
 ---
 
