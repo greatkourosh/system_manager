@@ -237,22 +237,46 @@ def filesystem_reading():
         return unavailable()
 
 
-def suggestions(data):
+DEFAULT_LOW_PCT = 10
+
+
+def _pct(value):
+    """Render a percentage for an advisory sentence, without a false 0%."""
+    value = float(value)
+    return f"{value:g}%"
+
+
+def suggestions(data, thresholds=None):
+    """Advisories for the current readings.
+
+    ``thresholds`` maps ``memory_low_pct`` / ``disk_low_pct`` to the percentage
+    *available* below which each advisory fires. Omitted or partial, the
+    built-in 10% applies, so a caller that passes nothing sees the behaviour
+    this function always had. A 0 is honoured rather than treated as unset.
+    """
+    thresholds = thresholds or {}
+
+    def low(key):
+        value = thresholds.get(key)
+        return DEFAULT_LOW_PCT if value is None else value
+
+    memory_pct = low("memory_low_pct")
+    disk_pct = low("disk_low_pct")
     result = []
     total = data["memory"]["MemTotal"]["value"]
     available = data["memory"]["MemAvailable"]["value"]
-    if total and available is not None and available / total < 0.1:
-        result.append({"title": "Memory pressure", "detail": "Less than 10% of memory is available. Review running applications before starting more work."})
+    if total and available is not None and available / total * 100 < memory_pct:
+        result.append({"title": "Memory pressure", "detail": f"Less than {_pct(memory_pct)} of memory is available. Review running applications before starting more work."})
     disk = data["filesystem"]["value"]
-    if disk and disk["total"] and disk["available"] / disk["total"] < 0.1:
-        result.append({"title": "Root filesystem space is low", "detail": "Less than 10% of root filesystem space is available. Review disk usage; nothing will be deleted automatically."})
+    if disk and disk["total"] and disk["available"] / disk["total"] * 100 < disk_pct:
+        result.append({"title": "Root filesystem space is low", "detail": f"Less than {_pct(disk_pct)} of root filesystem space is available. Review disk usage; nothing will be deleted automatically."})
     routes = data["routes"]
     if all(route["state"] == "observed" and not route["value"] for route in routes.values()):
         result.append({"title": "No default route observed", "detail": "No default route was found in the main IPv4 or IPv6 tables. Policy routing may still provide connectivity. Review Network settings."})
     return result
 
 
-def snapshot():
+def snapshot(thresholds=None):
     try:
         load = observed(list(os.getloadavg()))
     except OSError:
@@ -288,7 +312,7 @@ def snapshot():
         "internet": {"state": "not tested", "detail": "No outbound probes are enabled. Local link state does not establish internet reachability."},
     }
     data["nameservers"] = nameservers()
-    data["suggestions"] = suggestions(data)
+    data["suggestions"] = suggestions(data, thresholds)
     return data
 
 

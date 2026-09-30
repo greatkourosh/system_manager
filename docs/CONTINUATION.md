@@ -382,6 +382,82 @@ journal and would need the approve → execute → audit flow that the two
 read-only modules deliberately skip. That is the same class of decision as the
 NM checkpoint question, so it is not implied by what shipped.
 
+### 2026-09-28 — Configurable Alert Thresholds (Milestone 14)
+
+The remaining half of Future Work #1. The 10% cutoffs in
+`server.py:suggestions()` and the 7-day apt-index age in `notifier.py` are now
+set at runtime from the dashboard, and stored in SQLite beside the action audit
+so they survive a restart.
+
+**A threshold of 0 is a real answer, and `or` would have eaten it.** "Never warn
+me about memory" is a legitimate preference, so `thresholds.get(k) or
+DEFAULT` is the wrong shape — a 0 would silently become 10. The lookup tests
+`is None` instead, and a `True` is refused where an int is required
+(`isinstance(True, int)` is `True` in Python, so a checkbox posting `true`
+would otherwise be stored as 1). The rendering is `%g`, not a hardcoded "10%",
+so a saved 25 reads "Less than 25% of memory is available" in the advisory
+itself; `12.5` is expressible in the renderer even though the API refuses
+non-integers.
+
+**The one signature change is additive.** `suggestions(data, thresholds=None)`
+and `snapshot(thresholds=None)` default to today's behaviour, so every existing
+caller — including the 145 tests that were already green before this — sees no
+change. The thresholds are threaded to the three places that decide whether to
+fire: `status.collect()` for the dashboard's Advisories card, `ConnectivityStore.get()`
+for `/api/status` (which collects its own snapshot, so passing them only at the
+top would have left the card on the built-in 10%), and `Notifier.check()` for the
+desktop alerts.
+
+**The notifier reads them through a callable, not a copy.** `Notifier.thresholds`
+is a zero-arg function re-invoked per tick, so a value saved while the timer is
+running reaches the next tick without the thread being rebuilt. A read that
+raises falls back to the shipped default rather than propagating: a settings
+failure must not be the reason the alert loop dies. The `WEB_CONCURRENCY`
+dead-code lesson from Milestone 11 applies — nothing here rebuilds the thread.
+
+**Saving a threshold calls `Notifier.forget()`.** The dedup is a *set of keys*,
+so a condition already seen stays silent forever. Tightening a cutoff can make
+a condition newly true, and without clearing that memory the notifier would
+decide it had already reported a condition it never saw. The cost is that an
+unrelated still-active condition may announce once more — the honest behaviour
+after the user changed its definition. Forgetting is deliberately *not* on the
+rejected path: a bad value changes nothing, so nothing should be re-announced.
+
+**A rejected value changes nothing at all.** `set_thresholds` validates every
+key before writing any of them and returns the current values alongside the
+error, so a form re-renders without a second round trip and a partial save is
+impossible. Bounds are 1–100% for the two percentages and 1–3650 days for the
+index age; a 0% cutoff is refused at the API even though the renderer supports
+it, because "alert when the disk is completely full" is not a useful state to
+wake someone for.
+
+**Verified against a running server**, not just the unit tests: `GET` returns the
+defaults, `PUT {30, 25, 14}` round-trips, `PUT {900}` returns 400 and leaves
+`25`/`14` untouched, and — the claim worth making — setting
+`memory_low_pct: 100` makes the live `/api/status` advisory read *"Less than
+100% of memory is available"*, proving the saved number reaches the text rather
+than a second hardcoded copy. **Persistence was checked across a real process
+restart** against a fixed `AUDIT_PATH`: `33`/`21` were still there after the
+server came back up. 169 tests + 40 subtests (24 new, `tests/test_thresholds.py`).
+
+The wiring test was checked against itself: reverting the `/api/status` change
+makes it fail, so it is load-bearing rather than decorative. A first draft of it
+asserted against a hand-built dict and would have passed with the wiring
+removed; that was rewritten to spy on the argument.
+
+**Not verified in a browser** — the preview classifier timed out on both
+attempts, the same gap Milestone 13 recorded. The form is confirmed by
+`node --check`, by the eight card elements rendering in the served HTML, and by
+the API round trip above; the layout, the number inputs and the Save button are
+not confirmed by eye. The `ponytail` here is that the form reuses `.conn-form`
+from the connectivity card rather than owning styles, so a threshold box and an
+endpoint box are styled identically by construction.
+
+**Still not built: webhook/email delivery.** Unchanged from Milestone 11's
+position and not implied by this — it means storing credentials and calling
+user-supplied URLs, which is an SSRF surface and a security decision rather than
+a feature.
+
 ---
 
 ## Architecture
@@ -397,7 +473,8 @@ run.py ── create_app() ── Flask
 │     ├── connectivity.py  → ConnectivityStore, GET/POST /api/connectivity
 │     │                     gateway → DNS → HTTPS probes every 60s when enabled
 │     ├── notifier.py      → Notifier, a 5-minute thread that announces each
-│     │                     new condition once via notify-send on the session bus
+│     │                     new condition once via notify-send on the session bus.
+│     │                     Thresholds are read per tick from auth.Settings.
 │     ├── organizer.py     → proxy to folder_organizer app at /organizer
 │     ├── journal.py       → blueprint at /logs; journal_api.py queries the host
 │     │                     journal via journalctl --root /host and renders
@@ -438,6 +515,8 @@ server.py (collector library, no HTTP layer)
 | GET | `/logs/` | Yes | Journal entries, filtered by `priority`, `unit`, `since`, `boot`, `limit`; `?export=json` downloads them |
 | GET | `/api/notifications` | Yes | Currently active conditions, recently sent alerts, `last_error`, `interval` |
 | POST | `/api/notifications` | Yes | Send a fixed test notification; `503` if `notify-send` failed |
+| GET | `/api/notifications/thresholds` | Yes | Current alert thresholds (`memory_low_pct`, `disk_low_pct`, `stale_index_days`) |
+| PUT | `/api/notifications/thresholds` | Yes | Replace thresholds; rejects unknown keys, non-integers and out-of-range values with the current values attached |
 | POST | `/api/login` | No | Exchange access code for session |
 | POST | `/api/logout` | Yes | Invalidate session |
 | GET | `/api/connectivity` | Yes | Connectivity settings + last scan (`enabled`, `endpoints`, `destination`, `last_run`, `status`, `checks`, `explanations`) |
@@ -493,7 +572,7 @@ docker compose exec system-manager cat /data/access-code
 ### Tests
 ```bash
 python3 -m pytest -q
-# 145 tests + 40 subtests, ~2s
+# 169 tests + 40 subtests, ~5s
 ```
 
 ---
@@ -519,10 +598,11 @@ Desktop notifications — **done**, see Milestone 11. A background timer
 announces the conditions the app already observes (low memory, low disk, no
 default route, waiting updates, stale apt indexes), once per condition as it
 appears.
-**Still open:** user-configurable thresholds (the 10% cutoffs are hardcoded in
-`server.py:suggestions()`), and webhook/email alerts — the latter means
-storing credentials and calling user-supplied URLs, so it is a security
-decision, not just a feature.
+~~User-configurable thresholds~~ — **done 2026-09-28**, see Milestone 14. The
+two percentage cutoffs and the apt-index age are set from the dashboard's
+Advisories card and stored in SQLite beside the audit log.
+**Still open:** webhook/email alerts — these mean storing credentials and
+calling user-supplied URLs, so they are a security decision, not just a feature.
 
 ### 2. Package & Update Management
 ~~List upgradable packages~~ — **done, read-only**, see Milestone 10. The
@@ -579,7 +659,7 @@ written; `scripts/` does not exist in this project.
 
 ## Git Status
 
-Clean through `888abfe` ("feat: a read-only Packages & Updates module"). Milestone 5 completed in `d1ac423`. The 2026-09-26 verification pass (Milestone 6) was documentation-only. A later pass on the same day fixed four container/host bugs — see the Milestone 7 entry, and Milestone 9 below. **145 tests + 40 subtests pass** (re-verified 2026-09-27, ~2s).
+Clean through `4b9643d` ("feat: a read-only Logs module over the host journal"); Milestone 14 (configurable alert thresholds) is the working tree, uncommitted. Milestone 5 completed in `d1ac423`. The 2026-09-26 verification pass (Milestone 6) was documentation-only. A later pass on the same day fixed four container/host bugs — see the Milestone 7 entry, and Milestone 9 below. **169 tests + 40 subtests pass** (re-verified 2026-09-28, ~5s).
 
 ### 2026-09-26 — Milestone 9: stale-claim sweep, video library, panel retirement
 

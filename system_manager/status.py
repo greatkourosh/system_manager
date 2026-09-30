@@ -37,13 +37,17 @@ def _load():
     return _MODULE, _ERROR
 
 
-def collect():
-    """Return the current snapshot, or an unavailable marker."""
+def collect(thresholds=None):
+    """Return the current snapshot, or an unavailable marker.
+
+    ``thresholds`` is passed through to ``server.snapshot`` so the advisories
+    are computed against the configured cutoffs rather than the built-in ones.
+    """
     module, error = _load()
     if module is None:
         return {"state": "unavailable", "detail": error, "data": None}
     try:
-        data = module.snapshot()
+        data = module.snapshot(thresholds)
     except Exception as exc:
         return {"state": "unavailable", "detail": f"collection failed: {exc}", "data": None}
     return {"state": "observed", "detail": None, "data": data}

@@ -86,9 +86,9 @@ class ConnectivityStore:
                     "checks": self.config["checks"],
                     "explanations": self.config["explanations"]}
 
-    def get(self):
+    def get(self, thresholds=None):
         """A status snapshot with connectivity fields attached; scans when due."""
-        result = status.collect()
+        result = status.collect(thresholds)
         data = result.get("data")
         with self.lock:
             due = self.config["enabled"] and (

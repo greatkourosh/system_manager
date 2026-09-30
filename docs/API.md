@@ -281,6 +281,40 @@ nothing a caller sends reaches `notify-send`'s argv.
 `last_error` set when `notify-send` failed — a dead desktop daemon must not
 read as a delivered alert.
 
+### `GET /api/notifications/thresholds`
+**Auth required.** The configured alert cutoffs, stored in SQLite beside the
+action audit.
+
+**Response:**
+```json
+{"memory_low_pct": 10, "disk_low_pct": 10, "stale_index_days": 7}
+```
+
+Percentages are *available*, not used: `memory_low_pct: 25` raises the advisory
+below 25% free. `stale_index_days` is the age at which the oldest apt index is
+announced.
+
+### `PUT /api/notifications/thresholds`
+**Auth required.** Replace one or more thresholds. Every key is validated
+before any of them is written, so a request can never half-apply.
+
+**Request:** `{"memory_low_pct": 25, "stale_index_days": 14}`
+
+**Response:** `200` with the full stored set, or `400` with the current values
+attached:
+```json
+{"error": "memory_low_pct must be between 1 and 100.",
+ "thresholds": {"memory_low_pct": 10, "disk_low_pct": 10, "stale_index_days": 7}}
+```
+
+**Rules:** whole numbers only (a JSON `true` is refused, not stored as 1);
+percentages 1–100; days 1–3650. An unknown key is a 400 rather than a silent
+ignore, so a typo in a form field cannot read as a saved setting.
+
+**A successful save clears the notifier's memory of already-announced
+conditions.** A condition is deduplicated by key, so without this a tightened
+cutoff could raise an advisory the notifier believed it had already reported.
+
 ### `POST /api/login`
 **No auth.** Exchange access code for session.
 

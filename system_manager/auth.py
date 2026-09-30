@@ -129,6 +129,87 @@ class ActionAudit:
                     "SELECT * FROM actions ORDER BY ts DESC LIMIT ?", (limit,))]
 
 
+# Bounds for the notification thresholds. Percentages are *available*, not
+# used, and are stored as whole numbers; the days cap is deliberately generous
+# because "never warn me" is a legitimate preference, and a floor of 1 day is
+# the only value that would be a mistake.
+THRESHOLD_BOUNDS = {
+    "memory_low_pct": (1, 100),
+    "disk_low_pct": (1, 100),
+    "stale_index_days": (1, 3650),
+}
+DEFAULT_THRESHOLDS = {
+    "memory_low_pct": 10,
+    "disk_low_pct": 10,
+    "stale_index_days": 7,
+}
+
+
+class Settings:
+    """A key/value table in the same database as the action audit.
+
+    Persistence rather than process state, because a threshold set at runtime
+    should survive a restart the way the audit log does. Parameterized queries
+    only, as in ``ActionAudit``.
+    """
+
+    def __init__(self, path, defaults=None):
+        self.path = Path(path)
+        self.lock = threading.Lock()
+        self.defaults = dict(DEFAULT_THRESHOLDS if defaults is None else defaults)
+        with self.lock:
+            with sqlite3.connect(self.path) as db:
+                db.execute("""CREATE TABLE IF NOT EXISTS settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                )""")
+
+    def get(self, key, default=None):
+        with self.lock:
+            with sqlite3.connect(self.path) as db:
+                row = db.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+        if row is not None:
+            return row[0]
+        return self.defaults.get(key, default)
+
+    def set(self, key, value):
+        with self.lock:
+            with sqlite3.connect(self.path) as db:
+                db.execute("INSERT INTO settings (key, value) VALUES (?, ?) "
+                           "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                           (key, str(value)))
+
+    def thresholds(self):
+        """The three notification thresholds, as ints, defaults filled in."""
+        return {key: int(self.get(key)) for key in sorted(THRESHOLD_BOUNDS)}
+
+    def set_thresholds(self, values):
+        """Persist validated thresholds. Returns (stored, error).
+
+        Every key is validated and reported on, so a caller learns about all
+        three bad values at once instead of fixing them one request at a time.
+        A rejected value changes nothing -- the stored thresholds are left
+        exactly as they were.
+        """
+        cleaned, errors = {}, []
+        for key, (low, high) in THRESHOLD_BOUNDS.items():
+            if key not in values:
+                continue
+            value = values[key]
+            if isinstance(value, bool) or not isinstance(value, int):
+                errors.append(f"{key} must be a whole number.")
+                continue
+            if not low <= value <= high:
+                errors.append(f"{key} must be between {low} and {high}.")
+                continue
+            cleaned[key] = value
+        if errors:
+            return None, "; ".join(errors)
+        for key, value in cleaned.items():
+            self.set(key, value)
+        return self.thresholds(), None
+
+
 class Approval:
     """In-memory single-use, expiring approval tokens bound to exact parameters."""
 

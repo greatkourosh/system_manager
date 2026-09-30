@@ -37,8 +37,13 @@ def create_app(config=None):
     security.approval = auth.Approval()
     app.config["SECURITY"] = security
     app.config["AUDIT"] = auth.ActionAudit(app.config["AUDIT_PATH"])
+    app.config["SETTINGS"] = auth.Settings(app.config["AUDIT_PATH"])
     app.config["CONNECTIVITY"] = ConnectivityStore()
-    app.config["NOTIFIER"] = Notifier(logger=app.logger)
+    # The notifier reads the thresholds through a callable so a value saved
+    # at runtime reaches the next tick without the thread being rebuilt.
+    app.config["NOTIFIER"] = Notifier(
+        logger=app.logger,
+        thresholds=lambda: app.config["SETTINGS"].thresholds())
     # A live timer would outlive the test that built the app; the tests
     # exercise Notifier directly instead.
     if not app.config.get("TESTING"):
@@ -73,7 +78,7 @@ def create_app(config=None):
         return render_template(
             "index.html",
             modules=modules(),
-            snap=status.collect(),
+            snap=status.collect(current_app.config["SETTINGS"].thresholds()),
             series=status.history(),
         )
 
@@ -81,7 +86,11 @@ def create_app(config=None):
     def api_status():
         if auth.require_session() is None:
             return jsonify({"error": "Unlock this dashboard with the local access code."}), 401
-        return jsonify(current_app.config["CONNECTIVITY"].get())
+        # The advisories are computed inside the snapshot, so the stored
+        # thresholds have to be passed in or the card would keep reporting
+        # the built-in 10% no matter what the user just saved.
+        thresholds = current_app.config["SETTINGS"].thresholds()
+        return jsonify(current_app.config["CONNECTIVITY"].get(thresholds))
 
     @app.route("/api/series")
     def api_series():
@@ -107,6 +116,30 @@ def create_app(config=None):
                 "body": "Desktop notifications are working."})
             return jsonify({"ok": delivered, "state": notifier.state()}), (200 if delivered else 503)
         return jsonify(notifier.state())
+
+    @app.route("/api/notifications/thresholds", methods=["GET", "PUT"])
+    def api_notification_thresholds():
+        """Read or replace the notification thresholds."""
+        if auth.require_session() is None:
+            return auth._authorize()
+        settings = current_app.config["SETTINGS"]
+        if request.method == "GET":
+            return jsonify(settings.thresholds())
+        body = request.get_json(silent=True) or {}
+        if not isinstance(body, dict):
+            return jsonify({"error": "Send a JSON object of thresholds."}), 400
+        unknown = sorted(set(body) - set(auth.THRESHOLD_BOUNDS))
+        if unknown:
+            return jsonify({"error": f"Unknown threshold(s): {', '.join(unknown)}."}), 400
+        stored, error = settings.set_thresholds(body)
+        if error:
+            return jsonify({"error": error, "thresholds": settings.thresholds()}), 400
+        # A tightened threshold can make a condition newly true. The notifier
+        # dedups on "has this key been seen", so a key that was already active
+        # stays quiet; clearing the memory is what lets a lowered cutoff
+        # announce itself on the next tick instead of silently waiting.
+        current_app.config["NOTIFIER"].forget()
+        return jsonify(stored)
 
     return app
 

@@ -185,6 +185,59 @@
   document.getElementById("connDisable")?.addEventListener("click", () => saveConnectivity(false));
   document.getElementById("connForm")?.addEventListener("submit", e => e.preventDefault());
 
+  // notification thresholds
+  const THRESHOLD_FIELDS = [
+    ["threshMemory", "memory_low_pct"],
+    ["threshDisk", "disk_low_pct"],
+    ["threshIndex", "stale_index_days"],
+  ];
+
+  function fillThresholds(values) {
+    THRESHOLD_FIELDS.forEach(([id, key]) => {
+      const input = document.getElementById(id);
+      // Never clobber a number the user is mid-way through typing.
+      if (input && document.activeElement !== input && values?.[key] != null) {
+        input.value = values[key];
+      }
+    });
+  }
+
+  async function loadThresholds() {
+    if (!document.getElementById("threshForm")) return;
+    try {
+      const res = await fetch("/api/notifications/thresholds", { cache: "no-store" });
+      if (res.ok) fillThresholds(await res.json());
+    } catch (e) { /* the form keeps its defaults; not worth a banner */ }
+  }
+  loadThresholds();
+
+  document.getElementById("threshSave")?.addEventListener("click", async () => {
+    const errorBox = document.getElementById("threshError");
+    errorBox.textContent = "";
+    const body = {};
+    // An empty or malformed box is reported by the server rather than sent:
+    // a partial save would silently leave the other two at their old values.
+    for (const [id, key] of THRESHOLD_FIELDS) {
+      const raw = document.getElementById(id).value.trim();
+      const value = Number(raw);
+      if (!raw || !Number.isInteger(value)) {
+        errorBox.textContent = "Enter a whole number in each box before saving.";
+        return;
+      }
+      body[key] = value;
+    }
+    try {
+      const res = await fetch("/api/notifications/thresholds", {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) { errorBox.textContent = data.error || "Could not save the thresholds."; return; }
+      fillThresholds(data);
+      poll();
+    } catch (e) { errorBox.textContent = "Could not reach the server to save the thresholds."; }
+  });
+
   // unlock (when auth is enabled)
   const lockForm = document.getElementById("lockForm");
   const lockError = document.getElementById("lockError");

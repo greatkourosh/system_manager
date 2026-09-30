@@ -31,11 +31,13 @@ STALE_INDEX_DAYS = 7
 SENT_HISTORY = 20
 
 
-def conditions(snapshot, packages=None):
+def conditions(snapshot, packages=None, stale_index_days=STALE_INDEX_DAYS):
     """Return [{key, title, body}] for every condition currently true.
 
     ``snapshot`` is a ``server.py`` snapshot; ``packages`` is the packages
     module's snapshot, or None to skip the package-derived conditions.
+    ``stale_index_days`` is the configurable age at which the apt-index
+    condition fires.
     """
     result = []
     if snapshot.get("state") != "observed":
@@ -64,7 +66,7 @@ def conditions(snapshot, packages=None):
         # what the page misses. Naming the oldest makes this a different claim
         # from the page's rather than a contradictory one.
         age_days = int((time.time() - index["oldest"]) / 86400)
-        if age_days > STALE_INDEX_DAYS:
+        if age_days > stale_index_days:
             result.append({
                 "key": "packages:stale-index",
                 "title": f"Oldest apt index is {age_days} days old",
@@ -84,11 +86,16 @@ class Notifier:
     set, and every condition would be announced once per worker.
     """
 
-    def __init__(self, clock=time.time, command=auth.command_output, logger=None):
+    def __init__(self, clock=time.time, command=auth.command_output, logger=None,
+                 thresholds=None):
         self.lock = threading.Lock()
         self.clock = clock
         self.command = command
         self.logger = logger
+        # A callable, not a dict: a threshold set at runtime has to be visible
+        # to the next tick without rebuilding the notifier. None means the
+        # module defaults, which is what a Notifier built outside the app uses.
+        self.thresholds = thresholds
         self.active = set()
         self.sent = []  # newest first
         self.last_error = None
@@ -116,7 +123,7 @@ class Notifier:
         """
         fired = []
         with self.lock:
-            current = {item["key"]: item for item in conditions(snapshot, packages)}
+            current = {item["key"]: item for item in conditions(snapshot, packages, self._stale_days())}
             still = {key for key in self.active if key in current}
             for key, item in current.items():
                 if key in self.active:
@@ -127,10 +134,46 @@ class Notifier:
             self.active = still
         return fired
 
+    def forget(self):
+        """Drop the acknowledged-condition memory.
+
+        Called when a threshold changes. Without it a condition that was
+        already active stays "seen" and a newly tightened cutoff would raise
+        an advisory the notifier has silently decided it already reported.
+        The cost is that an unchanged condition may announce once more, which
+        is the honest behaviour after the user changed the definition of it.
+        """
+        with self.lock:
+            self.active = set()
+
     def state(self):
         with self.lock:
             return {"active": sorted(self.active), "sent": list(self.sent),
                     "last_error": self.last_error, "interval": CHECK_INTERVAL}
+
+    def _stale_days(self):
+        thresholds = self.current_thresholds()
+        if thresholds is None:
+            return STALE_INDEX_DAYS
+        try:
+            return int(thresholds["stale_index_days"])
+        except (KeyError, TypeError, ValueError):
+            # A settings read must never be the reason the alert loop dies;
+            # fall back to the shipped default rather than raising here.
+            return STALE_INDEX_DAYS
+
+    def current_thresholds(self):
+        """The stored thresholds, or None when this notifier has no settings.
+
+        Collected fresh on each call so a value changed at runtime reaches the
+        next tick without rebuilding anything.
+        """
+        if self.thresholds is None:
+            return None
+        try:
+            return self.thresholds()
+        except Exception:
+            return None
 
 
 def _tick(notifier):
@@ -139,7 +182,8 @@ def _tick(notifier):
     from .status import collect
     while True:
         try:
-            notifier.check(collect(), packages_snapshot())
+            thresholds = notifier.current_thresholds()
+            notifier.check(collect(thresholds), packages_snapshot())
         except Exception as exc:
             if notifier.logger:
                 notifier.logger.warning("notification check failed: %s", exc)
