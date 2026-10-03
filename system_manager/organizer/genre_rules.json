@@ -10,6 +10,5 @@
     {"match": ["pop", "پاپ"], "genre": null, "scope": "path", "script_aware": true},
     {"match": ["instrumental", "بی کلام", "bikalam"], "genre": null, "scope": "path", "script_aware": true, "base": "Instrumental"}
   ],
-  "script_prefixes": {"fa": "Persian ", "default": "International "},
-  "fallback": "Unknown"
+  "script_prefixes": {"fa": "Persian ", "default": "International "}
 }

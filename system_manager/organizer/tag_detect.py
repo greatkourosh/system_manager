@@ -6,6 +6,7 @@ import os
 import re
 import sys
 from datetime import date
+from functools import lru_cache
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 FIELDS = ("artist", "title", "album", "year", "genre")
@@ -26,6 +27,22 @@ STOP_FOLDERS = {"files", "music", "audio", "cd", "cds", "new", "old", "mp3", "so
                 "video_files", "documents", "download", "downloads", "misc", "others", "other"}
 
 
+@lru_cache(maxsize=512)
+def _needle_re(needle):
+    """A genre needle that only matches on a word boundary.
+
+    Plain substring matching finds "ney" inside "jour|ney" and "tar " inside
+    "so|tar", which tagged English tracks as Persian Traditional. A needle
+    that already carries its own boundary ("\\Games\\") is used as-is.
+    """
+    n = needle.strip()
+    if not n:
+        return None
+    if re.match(r"^\\.*\\$", n) or n[0] in "،/" or n[-1] in "،/":
+        return re.compile(re.escape(n), re.I)
+    return re.compile(r"(?<!\w)" + re.escape(n) + r"(?!\w)", re.I)
+
+
 def _has_persian(text):
     return bool(PERSIAN_RE.search(text or ""))
 
@@ -39,10 +56,16 @@ def clean_filename(name):
 
 
 def detect_genre(path):
+    """Return a genre only when a rule actually matched, else None.
+
+    No fallback: a placeholder like "International Unknown" is worse than an
+    empty tag, because it turns "no data" into data the library will never
+    re-audit as missing.
+    """
     pl = path.lower().replace("_", " ")
     for rule in GENRE_RULES["rules"]:
         needles = rule["match"] if isinstance(rule["match"], list) else [rule["match"]]
-        hit = any(n.lower() in pl for n in needles)
+        hit = any((r := _needle_re(n)) and r.search(pl) for n in needles)
         if not hit:
             continue
         if rule.get("script_aware"):
@@ -50,9 +73,7 @@ def detect_genre(path):
             base = rule.get("base") or (needles[0].capitalize())
             return prefix + base
         return rule["genre"]
-    # fallback by script on the artist-ish part
-    prefix = GENRE_RULES["script_prefixes"]["fa"] if _has_persian(path) else GENRE_RULES["script_prefixes"]["default"]
-    return prefix + GENRE_RULES["fallback"]
+    return None
 
 
 def _segment_after_music(parts):
@@ -66,7 +87,13 @@ def _segment_after_music(parts):
 
 
 def detect_from_path(path, mtime=None):
-    """Return {field: {value, confidence}} for proposed fields only (no value -> absent)."""
+    """Return {field: {value, confidence}} for proposed fields only (no value -> absent).
+
+    Only suggests fields the layout actually determines. A flat folder like
+    `Music/vMusic/` holds files named "001) Artist - Title.mp3"; taking the
+    folder as the artist or the whole filename as the title writes "vMusic"
+    into 875 tracks, so those cases propose nothing instead.
+    """
     norm = path.replace("/", "\\")
     parts = [p for p in norm.split("\\") if p]
     filename = parts[-1]
@@ -74,27 +101,24 @@ def detect_from_path(path, mtime=None):
     after_music, in_music = _segment_after_music(dirs)
     prop = {}
 
-    title = clean_filename(filename)
-    if title:
-        prop["title"] = {"value": title, "confidence": "med" if in_music else "low"}
+    # `Music/<artist>/<album>/track` — a track sits at least two levels below
+    # Music, so there is a real artist folder to read.
+    nested = in_music and len(after_music) >= 2
 
-    genre = detect_genre(path)
-    if genre:
-        prop["genre"] = {"value": genre, "confidence": "med"}
+    if nested:
+        title = clean_filename(filename)
+        if title:
+            prop["title"] = {"value": title, "confidence": "med"}
 
-    if in_music and after_music:
         artist = after_music[0]
-        if artist and len(after_music) >= 2:
-            prop["artist"] = {"value": artist, "confidence": "high"}
-            album = after_music[1]
-            if album.lower().strip() not in STOP_FOLDERS and not YEAR_RE.fullmatch(album.strip()):
-                prop["album"] = {"value": album, "confidence": "med"}
-            elif album.lower().strip() in STOP_FOLDERS and len(after_music) >= 3:
-                nxt = after_music[2]
-                if nxt.lower().strip() not in STOP_FOLDERS:
-                    prop["album"] = {"value": nxt, "confidence": "low"}
-        elif artist:
-            prop["artist"] = {"value": artist, "confidence": "med"}
+        prop["artist"] = {"value": artist, "confidence": "high"}
+        album = after_music[1]
+        if album.lower().strip() not in STOP_FOLDERS and not YEAR_RE.fullmatch(album.strip()):
+            prop["album"] = {"value": album, "confidence": "med"}
+        elif album.lower().strip() in STOP_FOLDERS and len(after_music) >= 3:
+            nxt = after_music[2]
+            if nxt.lower().strip() not in STOP_FOLDERS:
+                prop["album"] = {"value": nxt, "confidence": "low"}
 
         # year: scan music-relative folder names, then fall back to mtime
         year = None
@@ -112,6 +136,10 @@ def detect_from_path(path, mtime=None):
                     prop["year"] = {"value": str(y), "confidence": "low"}
             except (OSError, OverflowError, ValueError):
                 pass
+
+    genre = detect_genre(path)
+    if genre:
+        prop["genre"] = {"value": genre, "confidence": "med"}
     return prop
 
 

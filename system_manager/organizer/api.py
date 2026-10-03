@@ -1271,6 +1271,16 @@ def api_tags_export():
         if tags:
             out_entries.append({"path": path, "tags": tags, "overwrites": overwrites,
                                 "ext": os.path.splitext(path)[1].lower()})
+    if not out_entries:
+        if skipped_unaccepted and not skipped_existing:
+            why = "nothing is accepted yet — click Accept or Auto-accept safe first"
+        elif skipped_existing and not skipped_unaccepted:
+            why = "every proposed field already has a tag — tick overwrite to replace it"
+        else:
+            why = "nothing accepted and nothing writable — re-detect or clear the plan"
+        return jsonify({"ok": False, "error": f"Nothing to export: {why}.",
+                        "skipped_unaccepted": skipped_unaccepted,
+                        "skipped_existing": skipped_existing}), 400
     os.makedirs(CMD_DIR, exist_ok=True)
     payload = {"generated": date.today().isoformat(), "count": len(out_entries), "entries": out_entries}
     tmp = TAG_FIX_LIST + ".tmp"
