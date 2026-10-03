@@ -508,6 +508,69 @@ here, and out of scope for a merge. They answer 200 with a well-formed body.
 
 ---
 
+### 2026-10-03 — Milestone 16: the tag detector stops guessing
+
+`organizer/tag_detect.py` wrote fields into a 31 111-track catalog in three
+places where the path did not determine the answer. All three were fixed in
+`90e68a5`; none was introduced by the merge.
+
+**Genre needles matched as bare substrings.** `"ney"` matched inside
+`ho|ney`, `"tar "` inside `Bishtar` and `Bish|tar`, `"setar"` inside
+`Setare` — so English and unrelated Persian tracks were tagged
+`Persian Traditional`, **745 rows** of them. The needle is now compiled with
+`(?<!\w)…(?!\w)`; one that carries its own boundary (`\\Games\\`) is used
+verbatim, since it is already a path fragment. This is the same
+whole-word lesson as the `dpkg` comparator, one layer down: a shortcut that
+looks safe is safe only on the inputs it was written for.
+
+**The boundary also un-steals later rules, which is why 254 rows change
+genre rather than merely losing one.** A path that matched `tar ` inside a
+*word* used to stop the scan dead. Now it falls through to the rule that
+actually describes the folder — `Money Talks` under `POP\` is
+`International Pop`, under `Blues\` is `International Jazz`.
+
+**`detect_genre` had a script-derived fallback**, so **23 074 of 31 111**
+rows were tagged `International Unknown` and none of them could ever be
+re-audited as missing: a placeholder turns "no data" into data. Unmatched is
+now `None`, and `fallback` is gone from `genre_rules.json`. Nothing else
+read that key.
+
+**Artist and title were read off a layout that determined neither.**
+`Music/vMusic/001) Artist - Title.mp3` has no artist folder, so the folder
+became the artist — `"vMusic"` written into **875 tracks**. A proposal now
+requires a track at least two levels below `Music`, so a flat folder
+proposes nothing. A guessed tag is not re-audit-able; an absent one is.
+
+**Export answered 200 with `count: 0`** when nothing was writable, which is
+indistinguishable from a successful empty export. It now names which of the
+two reasons applies and answers 400.
+
+**Measured, not sampled.** The old and new detectors were run side by side
+over all 31 111 catalog entries: **739 rows change** — 477 genre drops,
+254 value changes, 8 additions. Every transition was inspected and every
+one is a correction; the 8 additions are genuine whole-word matches the
+trailing-space needle used to miss (`Taknavaziye |Tar.`, `Bezan |Tar.`).
+One expectation of mine was wrong while checking this and the code was
+right: `Nazi Naz Kon` matches no instrument needle, so `None` is correct
+there. 180 tests + 318 subtests.
+
+**Not verified against the running container** — the Docker socket is not
+readable by this session, so the tag pages were not walked in a browser.
+The 11 new tests are unit-level; the numbers above come from the real
+catalog file, not from the app.
+
+**Deliberately not done: deleting the sibling's old web app.** Task 6 of
+the merge plan removes `folder_organizer/app.py`, its `templates/` and the
+standalone `:5001` Dockerfile/compose. That is held until the blueprint is
+confirmed in a browser, because the suite passing is not the evidence that
+matters for a URL rewrite — see Milestone 15, where two of the three bugs
+produced perfectly correct HTML and a 200. **The plan's list of tests to
+keep is also wrong:** `test_seasons.py` and `test_tmdb_ratings.py` both do
+`from app import …`, so only `test_video_catalog.py` and
+`e2e_tags_check.py` survive the deletion.
+
+---
+
 ## Architecture
 
 ```
@@ -523,7 +586,9 @@ run.py ── create_app() ── Flask
 │     ├── notifier.py      → Notifier, a 5-minute thread that announces each
 │     │                     new condition once via notify-send on the session bus.
 │     │                     Thresholds are read per tick from auth.Settings.
-│     ├── organizer.py     → proxy to folder_organizer app at /organizer
+│     ├── organizer/       → blueprint at /organizer; owns the web routes and
+│     │                     reads data/ + commands_to_run/ from the bind-mounted
+│     │                     sibling checkout. The host-side toolbelt stays there.
 │     ├── journal.py       → blueprint at /logs; journal_api.py queries the host
 │     │                     journal via journalctl --root /host and renders
 │     │                     entries. Read-only: never vacuums or rotates.
@@ -620,7 +685,7 @@ docker compose exec system-manager cat /data/access-code
 ### Tests
 ```bash
 python3 -m pytest -q
-# 169 tests + 40 subtests, ~5s
+# 180 tests + 318 subtests, ~5s
 ```
 
 ---
@@ -707,7 +772,12 @@ written; `scripts/` does not exist in this project.
 
 ## Git Status
 
-Clean through `4b9643d` ("feat: a read-only Logs module over the host journal"); Milestone 14 (configurable alert thresholds) is the working tree, uncommitted. Milestone 5 completed in `d1ac423`. The 2026-09-26 verification pass (Milestone 6) was documentation-only. A later pass on the same day fixed four container/host bugs — see the Milestone 7 entry, and Milestone 9 below. **169 tests + 40 subtests pass** (re-verified 2026-09-28, ~5s).
+Clean through `90e68a5` ("fix: stop the tag detector guessing"). Milestone 15
+(the organizer as a real blueprint) is `4f5f00b`; Milestone 5 completed in
+`d1ac423`. The 2026-09-26 verification pass (Milestone 6) was documentation-only.
+A later pass on the same day fixed four container/host bugs — see the Milestone 7
+entry, and Milestone 9 below. **180 tests + 318 subtests pass**
+(re-verified 2026-10-03, ~7s).
 
 ### 2026-09-26 — Milestone 9: stale-claim sweep, video library, panel retirement
 
@@ -783,8 +853,24 @@ port-4000 proxy.
   so it is a decision, not a feature: the same class as the NM checkpoint
   question below.
 - **Notifications & scheduling (#1)** — the desktop half shipped
-  2026-09-27, see Milestone 11. What remains is configurable thresholds and
-  webhook/email, both listed above.
+  2026-09-27, see Milestone 11, and configurable thresholds landed 2026-09-28
+  (Milestone 14). What remains is webhook/email, which is a security decision
+  rather than a feature, so it is listed as blocked rather than pending.
+- **Finish the organizer merge: delete the sibling's old web app** — the
+  remaining item of Milestone 15. Remove `folder_organizer/app.py`, its
+  `templates/`, the standalone `:5001` Dockerfile/compose, and the tests that
+  `from app import …`: `test_app.py`, `test_hardening.py`, `test_programs.py`,
+  `test_run_cmd.py`, `test_videos.py`, `test_subtitle_queue.py`, **and also
+  `test_seasons.py` and `test_tmdb_ratings.py`** — the plan said to keep those
+  two, but both import the app. Only `test_video_catalog.py` and
+  `e2e_tags_check.py` genuinely survive.
+
+  **Do this only after a browser walk, not on a green suite.** Rebuild with
+  `docker compose build && docker compose up -d --force-recreate`, then visit
+  all ten pages and click the POST flows on `music/tags` and `select`; a bare
+  `/api/...` 404 in the console is the signature of a missed prefix. Milestone
+  15 had two bugs that rendered perfect HTML and returned 200 while failing in
+  the browser, so "the tests pass" is not the evidence that matters here.
 
 ### Requested: richer filters + sorting on the Video Library page
 
