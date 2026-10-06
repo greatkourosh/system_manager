@@ -13,6 +13,9 @@
   <div class="col-md-2"><div class="card p-2"><div class="text-muted small">{{ label }}</div><div class="stat-num">{{ "{:,}".format(a[k]) }}</div></div></div>
   {% endfor %}
   <div class="col-md-2"><div class="card p-2"><div class="text-muted small">Fully tagged</div><div class="stat-num text-success">{{ a.status_counts.ok|default(0) }}</div></div></div>
+  {% if a.files_gone %}
+  <div class="col-md-3"><div class="card p-2"><div class="text-muted small">Gone since the scan</div><div class="stat-num text-secondary">{{ "{:,}".format(a.files_gone) }}</div><div class="small text-muted">Folders renamed or deleted — clear them with a re-scan, not a tag edit.</div></div></div>
+  {% endif %}
   <div class="col-md-3"><div class="card p-2">
     <div class="text-muted small">Plan: {{ plan_stats.entries }} entries · {{ plan_stats.accepted }} accepted</div>
     <div class="small">{% for s, n in plan_stats.fields_by_source|dictsort %}<span class="badge bg-secondary me-1">{{ s }}: {{ n }}</span>{% endfor %}</div>
@@ -180,7 +183,7 @@ async function mergeMB() {
   location.reload();
 }
 async function exportPlan() {
-  const j = await post(U['api/tags/export'], {});
+  const j = await post(U['api/tags/export'], {filters: currentFilters()});
   if (!j.ok) { alert('Failed: ' + j.error); return; }
   showModal(j);
 }
@@ -190,7 +193,7 @@ function showModal(j) {
   <div class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" style="background:rgba(0,0,0,.5);z-index:2000;">
     <div class="card p-4 shadow" style="max-width:660px;width:92%;">
       <h5 class="mb-2">Tag fix script ready</h5>
-      <p><strong>${j.count}</strong> files · ${j.skipped_existing} field proposals skipped (existing tag, overwrite unticked)${j.skipped_unaccepted ? ` · ${j.skipped_unaccepted} not yet accepted` : ''}</p>
+      <p><strong>${j.count}</strong> files · ${j.skipped_existing} field proposals skipped (existing tag, overwrite unticked)${j.skipped_unaccepted ? ` · ${j.skipped_unaccepted} not yet accepted` : ''}${j.skipped_filtered ? ` · <strong>${j.skipped_filtered} left out by the current filter</strong>` : ''}</p>
       <label class="form-label small text-muted mb-1">1) Dry-run first (no writes)</label>
       <div class="input-group input-group-sm mb-2">
         <input class="form-control font-monospace" id="cmdDry" readonly value="${j.dry_command.replace(/"/g, '&quot;')}">

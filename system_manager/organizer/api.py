@@ -1208,6 +1208,7 @@ def api_tags_bulk():
         targets = paths
     else:
         return jsonify({"ok": False, "error": "page_paths or filters required"}), 400
+    cur_by_path = _audit_by_path(load("music_tag_audit.json") or {"problems": []}) if mode == "accept-safe" else {}
     n = 0
     for path in targets:
         if path not in entries:
@@ -1217,8 +1218,13 @@ def api_tags_bulk():
         elif mode == "unaccept":
             entries[path]["accepted"] = False
         elif mode == "accept-safe":
-            # auto-accept only when every field is med/high confidence AND no overwrite is requested
-            fields = entries[path].get("fields", {})
+            # Only judge the fields the export would actually write. The export drops a
+            # field when the file already has that tag and overwrite is unticked, so a
+            # low-confidence year guessed from mtime used to veto all 282 Moein entries
+            # over a value that was never going to be written.
+            cur = cur_by_path.get(path) or {}
+            fields = {f: s for f, s in entries[path].get("fields", {}).items()
+                      if s.get("value") and (not cur.get(f) or s.get("overwrite"))}
             safe = fields and all(
                 spec.get("confidence") in ("high", "med") and not spec.get("overwrite")
                 for spec in fields.values())
@@ -1244,11 +1250,25 @@ def api_tags_export():
     body = request.get_json(silent=True) or {}
     only_accepted = body.get("only_accepted", True)
     plan = load_tag_plan()
-    audit = _audit_by_path(load("music_tag_audit.json") or {"problems": []})
+    audit_raw = load("music_tag_audit.json") or {"problems": []}
+    audit = _audit_by_path(audit_raw)
+    # Without filters this would export every accepted entry in the plan, so a
+    # click while looking at one folder silently wrote a different folder's batch.
+    targets = None
+    if body.get("filters") is not None:
+        f = body["filters"]
+        targets = {p["path"] for p in _music_problems_filtered(
+            audit_raw, plan, f.get("state", "all"), f.get("folder"), f.get("missing", "all"),
+            (f.get("q") or "").strip().lower())}
     out_entries = []
+    exported = []
     skipped_existing = 0
     skipped_unaccepted = 0
+    skipped_filtered = 0
     for path, entry in plan["entries"].items():
+        if targets is not None and path not in targets:
+            skipped_filtered += 1
+            continue
         if only_accepted and not entry.get("accepted"):
             skipped_unaccepted += 1
             continue
@@ -1271,8 +1291,11 @@ def api_tags_export():
         if tags:
             out_entries.append({"path": path, "tags": tags, "overwrites": overwrites,
                                 "ext": os.path.splitext(path)[1].lower()})
+            exported.append(path)
     if not out_entries:
-        if skipped_unaccepted and not skipped_existing:
+        if skipped_filtered and not (skipped_existing or skipped_unaccepted):
+            why = "no accepted files match this filter — widen the folder or search box"
+        elif skipped_unaccepted and not skipped_existing:
             why = "nothing is accepted yet — click Accept or Auto-accept safe first"
         elif skipped_existing and not skipped_unaccepted:
             why = "every proposed field already has a tag — tick overwrite to replace it"
@@ -1280,6 +1303,7 @@ def api_tags_export():
             why = "nothing accepted and nothing writable — re-detect or clear the plan"
         return jsonify({"ok": False, "error": f"Nothing to export: {why}.",
                         "skipped_unaccepted": skipped_unaccepted,
+                        "skipped_filtered": skipped_filtered,
                         "skipped_existing": skipped_existing}), 400
     os.makedirs(CMD_DIR, exist_ok=True)
     payload = {"generated": date.today().isoformat(), "count": len(out_entries), "entries": out_entries}
@@ -1287,8 +1311,15 @@ def api_tags_export():
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=1)
     os.replace(tmp, TAG_FIX_LIST)
+    # Marked here, not by the host script: the plan lives in the container and the
+    # apply runs in a shell the dashboard never sees. Exported is not yet written,
+    # so this only records "handed to the host" and the re-audit is what confirms it.
+    for path in exported:
+        plan["entries"][path]["exported"] = date.today().isoformat()
+    plan["exported_count"] = sum(1 for e in plan["entries"].values() if e.get("exported"))
+    save_tag_plan(plan)
     return jsonify({"ok": True, "count": len(out_entries), "skipped_existing": skipped_existing,
-                    "skipped_unaccepted": skipped_unaccepted,
+                    "skipped_unaccepted": skipped_unaccepted, "skipped_filtered": skipped_filtered,
                     "file": "commands_to_run/tag_fix_list.json",
                     "dry_command": run_cmd("apply_music_tags.py"),
                     "apply_command": run_cmd("apply_music_tags.py", "--apply")})
