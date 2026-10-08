@@ -449,6 +449,73 @@ otherwise be indistinguishable from a quiet host.
 > `Permission denied`, which surfaces as the mount error above rather than as
 > an empty log.
 
+### `GET /network/`
+**Auth required.** The network page, as HTML — a summary line plus interfaces,
+routes, DNS servers, listening ports and conntrack, each filled by the
+accompanying JSON endpoints below. Like `/packages/` and `/logs/`, it takes no
+query parameters and changes nothing.
+
+### `GET /network/summary`
+**Auth required.** Counts for the summary line.
+```json
+{"hostname": {"hostname": "kourosh-pc", "domain": ""},
+ "interfaces": 52, "routes": 22, "listening_ports": 349,
+ "dns_servers": ["127.0.0.1"]}
+```
+
+### `GET /network/interfaces`
+**Auth required.** Every interface with its state, MAC, addresses and MTU.
+```json
+[{"name": "lo", "state": "UNKNOWN", "mac": "00:00:00:00:00:00",
+  "ipv4": ["127.0.0.1/8"], "ipv6": ["::1/128"], "mtu": 65536}]
+```
+
+### `GET /network/routes`
+**Auth required.** The routing table, unfiltered.
+```json
+[{"dst": "default", "gateway": "192.168.1.1", "dev": "eno1",
+  "protocol": "static", "metric": 100, "flags": []},
+ {"dst": "172.17.0.0/16", "dev": "docker0", "protocol": "kernel",
+  "scope": "link", "prefsrc": "172.17.0.1", "flags": ["linkdown"]}]
+```
+`dst` is absent on a default route and `gateway` absent on a connected one; the
+page renders a missing value as `default` or blank rather than as `null`.
+
+### `GET /network/dns`
+**Auth required.** The nameservers in `/etc/resolv.conf`.
+```json
+{"servers": ["127.0.0.1"]}
+```
+
+### `GET /network/ports`
+**Auth required.** Listening and bound sockets from `ss -tulpn`.
+```json
+[{"proto": "udp", "local_ip": "127.0.0.53", "local_port": 53,
+  "pid": 918, "exe": "systemd-resolved"}]
+```
+`pid` and `exe` are `null` and `""` for sockets the process cannot be attributed
+to — `ss` leaves them off for root-owned sockets in some configurations.
+
+> **`ss` renders an IPv6 socket as `[addr]%iface:port`.** Splitting that on the
+> last `:` leaves the port glued to the scope id, and `int()` raises — which took
+> the whole page down, because `summary` counts the same list. `_split_addr_port()`
+> splits on `]:` instead and drops any row with no port at all.
+
+### `GET /network/conntrack`
+**Auth required.** Tracked connections, capped at 200 rows on the page.
+```json
+[{"proto": "tcp", "state": "ESTABLISHED",
+  "src_ip": "10.0.0.5", "src_port": 51514,
+  "dst_ip": "93.184.216.34", "dst_port": 443}]
+```
+Empty when `CONFIG_NF_CONNTRACK` is unset or the table is unreadable; the page
+says so rather than showing a blank table.
+
+> **This module reports the container's network, not the host's.** `ip`, `ss` and
+> `/etc/resolv.conf` are read unprefixed, while the host's `/proc` is mounted at
+> `/host/proc`. Every other module reads through `/host`. Reading the host's
+> stack instead needs `nsenter`, or parsing `/host/proc/net/*`.
+
 ---
 
 ## Error Responses

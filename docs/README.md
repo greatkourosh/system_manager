@@ -32,7 +32,7 @@ each time you need to log in. `/health` is the only unauthenticated endpoint.
 | Category | Capabilities |
 |----------|--------------|
 | **System Observation** | CPU, memory, disk, uptime, kernel, hardware identity |
-| **Network** | Interfaces, addresses, routes, DNS servers |
+| **Network** | Interfaces, addresses, routes, DNS servers, listening ports, conntrack |
 | **Connectivity** | Gateway reachability, DNS resolution, TLS endpoint test (opt-in) |
 | **Notifications** | Desktop alert when a new condition appears (low memory/disk, no default route, waiting updates, stale apt indexes) |
 | **Actions** | Restart/start user services, activate NetworkManager profiles (VPN, Wi-Fi, ethernet) |
@@ -49,10 +49,12 @@ each time you need to log in. `/health` is the only unauthenticated endpoint.
   - `organizer` — media organizer blueprint under `/organizer`; reads its JSON from the bind-mounted `../folder_organizer`
   - `inventory` — hardware inventory (SQLite store, CRUD + export)
   - `packages` — the host's upgradable apt set, read-only; renders the commands, runs none
+  - `journal` — journal search by priority, unit and time, read-only via `journalctl --root`
+  - `network_manager` — interfaces, routes, DNS, listening ports, conntrack, read-only under `/network`
 - **Templates/static** under `templates/`, `static/` (Jinja, vanilla JS/CSS)
 - **Collector library** (`server.py`, stdlib-only, no HTTP layer) — imported by `system_manager/` for its collectors, connectivity probes and action primitives. Its standalone panel was retired 2026-09-26.
 - **Containerized** with host mounts for `/proc`, `/sys`, `/etc`, dbus, and (read-only) the host's dpkg database and apt indexes
-- **145 unit/integration tests** (`tests/test_server.py`, `tests/test_flask_app.py`, `tests/test_connectivity.py`, `tests/test_inventory.py`, `tests/test_lock.py`, `tests/test_packages.py`, `tests/test_notifier.py`, `tests/test_journal.py`)
+- **191 unit/integration tests** (`tests/test_server.py`, `tests/test_flask_app.py`, `tests/test_connectivity.py`, `tests/test_inventory.py`, `tests/test_lock.py`, `tests/test_packages.py`, `tests/test_notifier.py`, `tests/test_journal.py`, `tests/test_thresholds.py`, `tests/test_tag_detect.py`, `tests/test_network.py`)
 
 ## Documentation
 

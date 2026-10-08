@@ -20,6 +20,7 @@ The canonical app is a **Flask application** (`system_manager/`) that mounts fea
 │  │                  data read from the bind-mounted sibling   │
 │  ├─ inventory/     — hardware inventory blueprint + SQLite   │
 │  ├─ packages/      — host dpkg/apt indexes, read-only        │
+│  ├─ network_manager/ — interfaces/routes/DNS/ports/conntrack │
 │  ├─ connectivity.py — opt-in gateway/DNS/HTTPS probes        │
 │  ├─ notifier.py    — 5-min thread, notify-send per new cond. │
 │  └─ __init__.py    — create_app(), /, /api/status, /modules  │
@@ -230,7 +231,7 @@ index.html (served by /)
 | Smoke | Manual / browser | Full UI flow, container mounts, real system data |
 
 Run: `python3 -m pytest -q` (180 tests + 318 subtests, ~6s)
-Test modules: `test_server.py` (19 — collectors, cache and actions), `test_connectivity.py` (11 — config, scan cadence, endpoint validation, API auth), `test_flask_app.py` (17 — Flask auth, approval flow, subprocess env), `test_lock.py` (19 — module blueprint gating, and the organizer's rendered URLs: nav prefixes, the `U` endpoint map, and that no page still calls a bare `/api/…`), `test_inventory.py` (5 — store + API), `test_packages.py` (29 — version ordering, index parsing, the page), `test_notifier.py` (17 — condition derivation, announce-once, retry, API auth), `test_journal.py` (28 — entry parsing, filter safety, the mount-error path, auth), `test_thresholds.py` (24 — configurable notification thresholds), `test_tag_detect.py` (11 — music tag detection: the nested layout, genre needle boundaries, no placeholder fallback). These sum to 180.
+Test modules: `test_server.py` (19 — collectors, cache and actions), `test_connectivity.py` (11 — config, scan cadence, endpoint validation, API auth), `test_flask_app.py` (17 — Flask auth, approval flow, subprocess env), `test_lock.py` (19 — module blueprint gating, and the organizer's rendered URLs: nav prefixes, the `U` endpoint map, and that no page still calls a bare `/api/…`), `test_inventory.py` (5 — store + API), `test_packages.py` (29 — version ordering, index parsing, the page), `test_notifier.py` (17 — condition derivation, announce-once, retry, API auth), `test_journal.py` (28 — entry parsing, filter safety, the mount-error path, auth), `test_thresholds.py` (24 — configurable notification thresholds), `test_tag_detect.py` (11 — music tag detection: the nested layout, genre needle boundaries, no placeholder fallback), `test_network.py` (11 — the network page's script/markup agreement, the `ss` port parse, and per-endpoint auth). These sum to 191.
 
 ## Extensibility Points
 

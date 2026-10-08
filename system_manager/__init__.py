@@ -12,6 +12,7 @@ from .organizer import is_available, organizer_blueprint
 from .inventory import inventory_blueprint, is_available as inventory_available
 from .journal import journal_blueprint, is_available as journal_available
 from .packages import packages_blueprint, is_available as packages_available
+from .network_manager import network_blueprint, is_available as network_available
 
 __all__ = ["create_app"]
 
@@ -53,6 +54,7 @@ def create_app(config=None):
     app.register_blueprint(organizer_blueprint())
     app.register_blueprint(inventory_blueprint())
     app.register_blueprint(packages_blueprint())
+    app.register_blueprint(network_blueprint())
     app.register_blueprint(journal_blueprint())
 
     @app.context_processor
@@ -181,5 +183,14 @@ def modules():
             "url": "journal.journal_api.list_entries",
             "available": journal_available(),
             "tags": ["journal", "logs", "systemd"],
+        },
+        {
+            "id": "network",
+            "name": "Network",
+            "summary": "Interfaces, routes, DNS, listening ports, conntrack.",
+            "path": "network",
+            "url": "network.network_api.index",
+            "available": network_available(),
+            "tags": ["interfaces", "routes", "dns", "ports"],
         },
     ]

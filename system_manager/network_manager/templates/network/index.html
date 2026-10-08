@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}Network &mdash; System Manager{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Network</h1>
+  <p class="muted">
+    Read-only view of the host&rsquo;s network stack. Nothing here changes
+    anything &mdash; the commands below are for you to copy and run yourself.
+  </p>
+</div>
+
+<div id="summary"><p class="muted">Loading summary&hellip;</p></div>
+
+<section>
+  <h2>Interfaces</h2>
+  <div class="pkg-table-wrap">
+    <table class="pkg-table">
+      <thead><tr><th>Name</th><th>State</th><th>MAC</th><th>IPv4</th><th>IPv6</th><th>MTU</th></tr></thead>
+      <tbody id="ifaces"></tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <h2>Routes</h2>
+  <div class="pkg-table-wrap">
+    <table class="pkg-table">
+      <thead><tr><th>Destination</th><th>Gateway</th><th>Device</th><th>Protocol</th></tr></thead>
+      <tbody id="routes"></tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <h2>DNS</h2>
+  <ul id="dns"></ul>
+</section>
+
+<section>
+  <h2>Listening Ports</h2>
+  <div class="pkg-table-wrap">
+    <table class="pkg-table">
+      <thead><tr><th>Proto</th><th>Address</th><th>Port</th><th>PID</th><th>Process</th></tr></thead>
+      <tbody id="ports"></tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <h2>Connections</h2>
+  <div class="pkg-table-wrap">
+    <table class="pkg-table">
+      <thead><tr><th>Proto</th><th>State</th><th>Source</th><th>Destination</th></tr></thead>
+      <tbody id="ct"></tbody>
+    </table>
+  </div>
+  <p class="muted" id="ct-note"></p>
+</section>
+
+<script>
+// The API lives under the module prefix; derive it from the page's own path so
+// the blueprint can be mounted anywhere.
+const API = location.pathname.replace(/\/[^/]*$/, '');
+function get(path) { return fetch(API + path).then(r => r.json()); }
+function text(v) {
+  const t = (v === null || v === undefined) ? '' : String(v);
+  const td = document.createElement('td');
+  td.textContent = t;
+  return td.outerHTML;
+}
+function fill(sel, rows) {
+  document.querySelector(sel).innerHTML =
+    rows.length ? rows.map(cells => '<tr>' + cells.map(text).join('') + '</tr>').join('')
+                : '<tr><td colspan="9" class="muted">None.</td></tr>';
+}
+Promise.all([get('/summary'), get('/interfaces'), get('/routes'), get('/dns'), get('/ports'), get('/conntrack')])
+  .then(([sum, ifs, rts, dns, ports, ct]) => {
+    document.getElementById('summary').innerHTML =
+      '<p class="muted"><strong>' + sum.hostname.hostname + '</strong> (' + sum.hostname.domain +
+      ') &mdash; ' + sum.interfaces + ' interfaces, ' + sum.routes + ' routes, ' +
+      sum.listening_ports + ' listening sockets, DNS: ' +
+      ((sum.dns_servers || []).join(', ') || 'none') + '</p>';
+    fill('#ifaces', ifs.map(i => [i.name, i.state, i.mac, (i.ipv4 || []).join(', '), (i.ipv6 || []).join(', '), i.mtu]));
+    fill('#routes', rts.map(r => [r.dst || 'default', r.gateway, r.dev, r.protocol]));
+    document.getElementById('dns').innerHTML =
+      (dns.servers && dns.servers.length)
+        ? dns.servers.map(s => '<li>' + s + '</li>').join('')
+        : '<li class="muted">None.</li>';
+    fill('#ports', ports.map(p => [p.proto, p.local_ip, p.local_port, p.pid, p.exe]));
+    fill('#ct', ct.slice(0, 200).map(c => [c.proto, c.state, c.src_ip + ':' + c.src_port, c.dst_ip + ':' + c.dst_port]));
+    if (ct.length > 200) document.getElementById('ct-note').textContent = 'Showing the first 200 of ' + ct.length + ' tracked connections.';
+    else if (!ct.length) document.getElementById('ct-note').textContent = 'No conntrack data (table empty or permission denied).';
+  })
+  .catch(err => {
+    document.getElementById('summary').innerHTML = '<p class="conn-error">Could not load network data: ' + err.message + '</p>';
+  });
+</script>
+{% endblock %}

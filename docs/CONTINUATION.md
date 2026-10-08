@@ -595,6 +595,9 @@ run.py ── create_app() ── Flask
 │     ├── packages/        → blueprint at /packages; dpkg.py parses the host's
 │     │                     dpkg status + apt indexes (ro) and renders
 │     │                     upgrade commands. Read-only: runs nothing.
+│     ├── network_manager/ → blueprint at /network; ip -j / ss -tulpn /
+│     │                     resolv.conf / conntrack, rendered into one page.
+│     │                     Read-only: no approval token, changes nothing.
 │     └── inventory/       → blueprint at /inventory; store.py (SQLite)
 │                            CRUD, filters, soft-delete, export
 ├── templates/  (base.html, index.html, modules.html)  Jinja
@@ -648,6 +651,12 @@ Inventory module (mounted at `/inventory`): `GET/POST /inventory/items`, `GET/PA
 Packages module (mounted at `/packages`): `GET /packages/` — the upgradable set with the commands to run it, as HTML, or as JSON with `Accept: application/json`. Read-only, and it runs no apt. A missing mount answers `ok: false` with the `docker-compose.yml` line to add, **never an empty list** — a blank page and an unreachable database would otherwise be indistinguishable from an up-to-date host.
 Full endpoint specs in API.md.
 
+Network module (mounted at `/network`): `GET /network/` — the HTML page — plus
+`GET /network/{summary,interfaces,routes,dns,ports,conntrack}` for the JSON the
+page fills itself from. Read-only, and it changes no network state. One
+caveat: `ip`, `ss` and `resolv.conf` are read unprefixed, so this reports the
+**container's** network, not the host's.
+
 ### Approval Flow
 1. `POST /api/approve` `{action_type, parameters}` → `approval_token`, `preconditions`, `expires_in`
 2. Show preview (modal)
@@ -685,7 +694,9 @@ docker compose exec system-manager cat /data/access-code
 ### Tests
 ```bash
 python3 -m pytest -q
-# 180 tests + 318 subtests, ~5s
+# 191 tests + 318 subtests, ~5s
+# 8 pre-existing failures in test_connectivity.py / test_server.py need working
+# DNS for api.example.org etc.; they fail the same way without any of my changes.
 ```
 
 ---
@@ -776,8 +787,53 @@ Clean through `90e68a5` ("fix: stop the tag detector guessing"). Milestone 15
 (the organizer as a real blueprint) is `4f5f00b`; Milestone 5 completed in
 `d1ac423`. The 2026-09-26 verification pass (Milestone 6) was documentation-only.
 A later pass on the same day fixed four container/host bugs — see the Milestone 7
-entry, and Milestone 9 below. **180 tests + 318 subtests pass**
-(re-verified 2026-10-03, ~7s).
+entry, and Milestone 9 below. **191 tests pass, 8 of them failing on DNS**
+(see Milestone 16 — the failures are pre-existing and unrelated).
+
+### 2026-10-08 — Milestone 16: the network module, made reachable
+
+The `network_manager/` package existed on disk and was already half-wired into
+`create_app()`, but nothing linked to a working page. Four bugs, all found by
+executing the page rather than reading it:
+
+**`/network/` returned 500 on every load.** `ss` prints an IPv6 socket as
+`[fe80::646f:aeff:fe04:47a0]%br-b13b4baa8249:36984`. The parse split on the last
+`:` and handed the tail to `int()`, which raised. Because `summary` counts the
+same list, one unparseable row took down the whole page. Fixed by splitting on
+`]:` in `_split_addr_port()` and skipping rows with no port at all.
+
+**The nav pointed at the JSON.** `modules()` named `network.network_api.summary`,
+so both the dashboard and the Modules page linked to a raw JSON blob — 349 rows
+of it. Now `network.network_api.index`.
+
+**The page was not a dashboard page.** It was a standalone `<html>` linking
+`static/style.css`, which does not exist in the repo, so it shipped unstyled and
+without the nav, footer or theme toggle. Rewritten on `{% extends "base.html" %}`.
+
+**The row ids were on the wrong element.** The ids sit on the `<tbody>`, but the
+script asked for `#ifaces tbody` — a descendant that cannot exist. `querySelector`
+returned `null`, the throw landed in the `.catch()`, and the page rendered
+`<p class="conn-error">` on markup that looked entirely valid. **This is the one
+that survives every server-side check**: the page is a well-formed 200 with the
+right ids in it. Only running the script caught it. `test_row_ids_sit_on_the_tbody_the_script_writes_to`
+now pins it.
+
+Two smaller fixes in the same pass: cells render through `textContent` rather
+than string concatenation (the hostname comes from `socket.gethostname()` and
+routes from `ip -j`, neither of which should be interpolated into HTML), and the
+API prefix is derived from `location.pathname` instead of a regex rewriting
+`/network/…` back to `/network`.
+
+`tests/test_network.py` adds 11 tests — nav target, base-template inheritance,
+script/markup id agreement, the `ss` parse, and per-endpoint auth. Confirmed they
+fail when the nav and tbody bugs are reintroduced.
+
+> **This module reads the container's network, not the host's.** `ip`, `ss` and
+> `/etc/resolv.conf` are read unprefixed while the host's `/proc` is mounted at
+> `/host/proc`; every other module reads through `/host`. So `/network/` shows the
+> container's own interfaces and ports, and the page's "the host's network stack"
+> wording is wrong until this is fixed. Real host data needs `nsenter`, or parsing
+> `/host/proc/net/*` directly.
 
 ### 2026-09-26 — Milestone 9: stale-claim sweep, video library, panel retirement
 
