@@ -459,47 +459,68 @@ query parameters and changes nothing.
 **Auth required.** Counts for the summary line.
 ```json
 {"hostname": {"hostname": "kourosh-pc", "domain": ""},
- "interfaces": 52, "routes": 22, "listening_ports": 349,
- "dns_servers": ["127.0.0.1"]}
+ "interfaces": 53, "routes": 162, "listening_ports": 619,
+ "dns_servers": ["127.0.0.1"], "source": "the host"}
 ```
+`source` names the network stack the numbers describe: `the host` under the
+shipped compose file, `this host` when running directly on a host with no
+`HOST_ROOT`, `the container (no pid namespace)` if `/host/proc/1/net` is
+missing, or `nothing (host mounts missing)`. The page prints it under the
+summary so the counts can never be read as more than they are.
 
 ### `GET /network/interfaces`
 **Auth required.** Every interface with its state, MAC, addresses and MTU.
 ```json
 [{"name": "lo", "state": "UNKNOWN", "mac": "00:00:00:00:00:00",
-  "ipv4": ["127.0.0.1/8"], "ipv6": ["::1/128"], "mtu": 65536}]
+  "type": "unknown", "ipv4": ["127.0.0.1"], "ipv6": ["::1"],
+  "mtu": 65536, "rx_bytes": 0, "tx_bytes": 0, "rx_packets": 0, "tx_packets": 0,
+  "rx_errors": 0, "tx_errors": 0, "rx_dropped": 0, "tx_dropped": 0}]
 ```
+Addresses are bare, without a prefix length — procfs stores host addresses, not
+the network's prefix. `type` is always `unknown`: procfs does not record an
+interface's type.
 
 ### `GET /network/routes`
-**Auth required.** The routing table, unfiltered.
+**Auth required.** The routing table, unfiltered, IPv4 and IPv6.
 ```json
-[{"dst": "default", "gateway": "192.168.1.1", "dev": "eno1",
-  "protocol": "static", "metric": 100, "flags": []},
- {"dst": "172.17.0.0/16", "dev": "docker0", "protocol": "kernel",
-  "scope": "link", "prefsrc": "172.17.0.1", "flags": ["linkdown"]}]
+[{"dst": "0.0.0.0/0", "gateway": "192.168.1.1", "dev": "eno1",
+  "protocol": "kernel", "metric": 100, "scope": "global", "family": "inet"},
+ {"dst": "::/0", "gateway": "", "dev": "lo",
+  "protocol": "kernel", "metric": 1, "scope": "link", "family": "inet6"}]
 ```
-`dst` is absent on a default route and `gateway` absent on a connected one; the
-page renders a missing value as `default` or blank rather than as `null`.
+`family` is `inet` or `inet6`, which is what the Source column shows. The default
+route is `0.0.0.0/0` rather than a missing `dst`, and the page renders it as
+`default`. `gateway` is `""` on a connected route. IPv6 default routes are
+listed per routing table, so `::/0` can appear more than once — the duplicate
+rows are real tables, not a parsing slip.
 
 ### `GET /network/dns`
-**Auth required.** The nameservers in `/etc/resolv.conf`.
+**Auth required.** The host's nameservers, from `/host/etc/resolv.conf`.
 ```json
-{"servers": ["127.0.0.1"]}
+{"servers": ["127.0.0.1"], "source": "the host"}
 ```
 
 ### `GET /network/ports`
-**Auth required.** Listening and bound sockets from `ss -tulpn`.
+**Auth required.** Listening and bound sockets, from
+`/proc/{1,}/net/{tcp,tcp6,udp,udp6}`.
 ```json
-[{"proto": "udp", "local_ip": "127.0.0.53", "local_port": 53,
-  "pid": 918, "exe": "systemd-resolved"}]
+[{"proto": "UDP", "local_ip": "127.0.0.53", "local_port": 53,
+  "pid": null, "exe": ""},
+ {"proto": "TCP", "local_ip": "127.0.0.1", "local_port": 10808,
+  "pid": 2378694,
+  "exe": "/home/kourosh/Applications/v2rayN-linux-64/bin/sing_box/sing-box"}]
 ```
-`pid` and `exe` are `null` and `""` for sockets the process cannot be attributed
-to — `ss` leaves them off for root-owned sockets in some configurations.
+Only `tcp` and `tcp6` rows in state `LISTEN` are listed. `udp` has no state
+field, and an unconnected UDP socket is its server-side equivalent, so all of
+those are listed.
 
-> **`ss` renders an IPv6 socket as `[addr]%iface:port`.** Splitting that on the
-> last `:` leaves the port glued to the scope id, and `int()` raises — which took
-> the whole page down, because `summary` counts the same list. `_split_addr_port()`
-> splits on `]:` instead and drops any row with no port at all.
+`pid` and `exe` are filled in for the sockets this container can attribute, which
+on a uid-1000 run is most of the invoking user's own and none of root's —
+`/host/proc/*/fd` is readable only for processes we own, and
+`CAP_DAC_READ_SEARCH` does not extend that. In practice about 540 of 620 sockets
+resolve and the rest are `null` with `exe` `""`. The page shows `—` and counts
+the ones it cannot attribute, rather than leaving a column of blanks that reads
+as missing data.
 
 ### `GET /network/conntrack`
 **Auth required.** Tracked connections, capped at 200 rows on the page.
@@ -508,13 +529,26 @@ to — `ss` leaves them off for root-owned sockets in some configurations.
   "src_ip": "10.0.0.5", "src_port": 51514,
   "dst_ip": "93.184.216.34", "dst_port": 443}]
 ```
-Empty when `CONFIG_NF_CONNTRACK` is unset or the table is unreadable; the page
-says so rather than showing a blank table.
+Ports in this table are hex, and are decoded. Empty when the kernel exposes no
+`/proc/net/nf_conntrack`; the page says so rather than showing a blank table.
 
-> **This module reports the container's network, not the host's.** `ip`, `ss` and
-> `/etc/resolv.conf` are read unprefixed, while the host's `/proc` is mounted at
-> `/host/proc`. Every other module reads through `/host`. Reading the host's
-> stack instead needs `nsenter`, or parsing `/host/proc/net/*`.
+> **Where the data comes from.** Every collector parses procfs through
+> `network_manager/hostnet.py`, never `ip` or `ss`. Under the shipped compose
+> file that is `/host/proc/1/net/*` — `pid: host` makes pid 1 the host's init,
+> so its `net` directory is the host's network namespace. `MAC`, `MTU` and
+> `operstate` come from `/host/sys/class/net/<if>/`, which procfs does not carry.
+>
+> Neither obvious shortcut reaches the host's stack, and this is why:
+>
+> - `nsenter -t 1 -n` is blocked by the default seccomp profile, as root too, so
+>   no capability helps.
+> - `/host/proc/net/*` is *not* the host's network data. procfs resolves the
+>   `net` symlink against the **reader's** pid namespace, so a plain
+>   `-v /proc:/host/proc` bind mount shows the container's own interfaces — 2
+>   where the host has 53.
+>
+> `HOST_ROOT` unset falls back to `/proc/net/*`, which is correct on a direct
+> host run, and `scoped_label()` reports whichever applies.
 
 ---
 

@@ -1,11 +1,15 @@
 """Network module for System Manager.
 
-Mounts at /network. Read-only host network inspection: interfaces,
-routes, DNS, listening ports, conntrack. No changes, no approval token.
+Mounts at /network. Read-only host network inspection: interfaces, routes,
+DNS, listening ports, conntrack. No changes, no approval token.
+
+The data comes from procfs rather than `ip`/`ss`, because inside a container
+those report the container's own stack. See hostnet for why neither
+nsenter nor a plain /host/proc bind mount can fix that.
 """
-from flask import Blueprint
 import os
-import shutil
+
+from flask import Blueprint
 
 from .. import auth
 from .api import network_bp
@@ -32,7 +36,8 @@ def network_blueprint():
 def is_available():
     """Quick probe for the dashboard nav.
 
-    Degrades gracefully: without iproute2 the API still serves empty
-    lists, so the module stays reachable wherever /proc/net exists.
+    True whenever there is a procfs net directory to parse, which is every
+    Linux kernel, container or not.
     """
-    return bool(shutil.which("ip") or shutil.which("ss") or os.path.exists("/proc/net"))
+    from . import hostnet
+    return hostnet.net_dir() is not None

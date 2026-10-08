@@ -595,9 +595,10 @@ run.py ── create_app() ── Flask
 │     ├── packages/        → blueprint at /packages; dpkg.py parses the host's
 │     │                     dpkg status + apt indexes (ro) and renders
 │     │                     upgrade commands. Read-only: runs nothing.
-│     ├── network_manager/ → blueprint at /network; ip -j / ss -tulpn /
-│     │                     resolv.conf / conntrack, rendered into one page.
-│     │                     Read-only: no approval token, changes nothing.
+│     ├── network_manager/ → blueprint at /network; hostnet.py parses the host's
+│     │                     /host/proc/1/net/* plus /host/sys/class/net/, and
+│     │                     api.py renders it into one page. Read-only: no
+│     │                     approval token, changes nothing.
 │     └── inventory/       → blueprint at /inventory; store.py (SQLite)
 │                            CRUD, filters, soft-delete, export
 ├── templates/  (base.html, index.html, modules.html)  Jinja
@@ -653,9 +654,10 @@ Full endpoint specs in API.md.
 
 Network module (mounted at `/network`): `GET /network/` — the HTML page — plus
 `GET /network/{summary,interfaces,routes,dns,ports,conntrack}` for the JSON the
-page fills itself from. Read-only, and it changes no network state. One
-caveat: `ip`, `ss` and `resolv.conf` are read unprefixed, so this reports the
-**container's** network, not the host's.
+page fills itself from. Read-only, and it changes no network state. It reports
+the **host's** network, parsed from `/host/proc/1/net/*` rather than shelled out
+to `ip`/`ss`, which would report the container's own stack. `summary` carries a
+`source` field naming which stack that is.
 
 ### Approval Flow
 1. `POST /api/approve` `{action_type, parameters}` → `approval_token`, `preconditions`, `expires_in`
@@ -828,12 +830,89 @@ API prefix is derived from `location.pathname` instead of a regex rewriting
 script/markup id agreement, the `ss` parse, and per-endpoint auth. Confirmed they
 fail when the nav and tbody bugs are reintroduced.
 
-> **This module reads the container's network, not the host's.** `ip`, `ss` and
-> `/etc/resolv.conf` are read unprefixed while the host's `/proc` is mounted at
-> `/host/proc`; every other module reads through `/host`. So `/network/` shows the
-> container's own interfaces and ports, and the page's "the host's network stack"
-> wording is wrong until this is fixed. Real host data needs `nsenter`, or parsing
-> `/host/proc/net/*` directly.
+> **This module read the container's network, not the host's.** `ip`, `ss` and
+> `/etc/resolv.conf` were read unprefixed while the host's `/proc` was mounted at
+> `/host/proc`; every other module reads through `/host`. Fixed in Milestone 17.
+
+### 2026-10-08 — Milestone 17: the network module reports the host
+
+The caveat left over from Milestone 16 is closed. `/network/` now describes the
+host's network stack, and says so.
+
+**Both obvious shortcuts fail, and that is the whole finding.** `nsenter -t 1 -n`
+is refused by the default seccomp profile — as root, as uid 1000, and under
+`seccomp=unconfined`, with the same `Operation not permitted` each time; no
+capability helps. And `-v /proc:/host/proc` does *not* give the host's network:
+procfs resolves the `net` symlink against the **reader's** pid namespace, so
+`/host/proc/net/dev` lists this container's 2 interfaces where the host has 53.
+A plain alpine container reproduces it, so it is not this image.
+
+**What works is `/host/proc/1/net/*`,** and compose already grants it: `pid: host`
+makes pid 1 the host's init, so its `net` directory *is* the host's namespace.
+`MAC`, `MTU` and `operstate` are not in procfs at all and come from
+`/host/sys/class/net/<if>/`. Everything is parsed in `network_manager/hostnet.py`;
+no subprocess is spawned.
+
+Verified field-by-field against `ip` and `ss` on the live host, from a container
+built with the shipped compose flags:
+
+| | parsed | `ip`/`ss` |
+|---|---|---|
+| interfaces | 53 | 52 + the test container's own veth |
+| IPv4 addresses | 22 | 22 — exact set match |
+| IPv6 addresses | 46 | 46 — exact set match |
+| routes | 22 v4 + 140 v6 | matches, correct default gateway `192.168.1.1` |
+| stable ports (<1024) | 10 | 10 — exact set match |
+
+(The veth in row 1 is created by the verification run itself, between the two
+samples. Ports above 1024 differ run to run; the ~600 ephemeral listeners churn
+while the diff runs.)
+
+**Three procfs quirks that each produced wrong output until handled:**
+
+- *fib_trie has no interface column* and lists every address twice, so an address
+  is attributed by **longest-prefix match** against the route table. First-match
+  files all 22 addresses under `eno1`, because every one of them also falls inside
+  the `0.0.0.0/0` default route. The set de-duplicates, and only `/32` LOCAL
+  entries are kept, since fib_trie marks the subnet address itself LOCAL under a
+  `/8` (which is how `127.0.0.0` came to be listed as an address). The local
+  route table has no `lo` entry, so loopback is special-cased or `127.0.0.1` also
+  lands on `eno1`.
+- *IPv6 byte order is not uniform.* `tcp6` and `udp6` hold four little-endian
+  32-bit words; `if_inet6` and `ipv6_route` hold plain network-order bytes. Using
+  the wrong decoder turns `fe80::6cab:bfff:fe14:856f` into
+  `0:80fe::ffd9:7cbc:6190:bafe` — plausible-looking, entirely wrong. Two decoders,
+  `decode_ipv6()` and `decode_ipv6_network()`, and the call sites pick.
+- *conntrack's tuple header is positional; only the trailing attributes are
+  `key=value`.* Taking `proto` from column 0 yields `ipv4`, and looking for
+  `state=` never finds it, because `ESTABLISHED` is a bare token.
+
+**Socket ownership is partial, and it took running the page to find out how
+partial.** The first implementation returned `pid: null` for everything, on the
+reasoning that `/host/proc/*/fd` is `Permission denied` even with
+`CAP_DAC_READ_SEARCH` — which is true, but only for processes we do not own.
+Executing the page against live JSON showed 541 of 618 sockets resolving a pid:
+every socket of the uid-1000 user, and none of root's. `/proc/<pid>/exe` is
+readable on the same terms, so `exe` now carries the basename too. The remaining
+77 are honestly unknown and the page says why: *their processes run as another
+user*. This is the third time on this module that a correct-looking API response
+hid a wrong claim in the page — the API was fine, the claim beside it was not.
+
+`summary` gained a `source` field — `the host`, `this host`,
+`the container (no pid namespace)` or `nothing (host mounts missing)` — and the
+page prints it, so the numbers can never be read as more than they are.
+`test_page_says_where_the_data_came_from` pins that.
+
+`tests/test_network.py` grows 11 → 42 tests. The fixtures are real procfs lines
+copied off this host, so the quirks above are pinned rather than described:
+`HexDecodeTests` for the two byte orders, `RouteTests` for longest-prefix
+attribution and loopback, `InterfaceTests` for the fib_trie duplications,
+`ScopeTests` for the four `source` values, and `ListeningPortTests` for inode
+attribution and the `exe` lookup that is a separate permission check from it.
+
+Conntrack is legitimately empty here: this kernel exposes neither
+`/proc/net/nf_conntrack` nor the `conntrack` binary. The page says that rather
+than showing a blank table.
 
 ### 2026-09-26 — Milestone 9: stale-claim sweep, video library, panel retirement
 
@@ -892,6 +971,11 @@ port-4000 proxy.
      data, plus `/health` → `{"status":"ok"}`. `nm_activate` is the one action
      still refused — see the checkpoint note above; that is a polkit decision,
      not an environment problem.
+- ~~Make `/network/` report the host's network stack, not the container's~~ —
+  **done 2026-10-08**, see Milestone 17. Parses `/host/proc/1/net/*` directly;
+  `nsenter` is seccomp-blocked and a plain `/host/proc` bind mount cannot work,
+  because procfs resolves the `net` symlink against the *reader's* pid
+  namespace. Verified against `ip` and `ss` on the live host.
 - ~~Decide: retire `server.py`'s standalone panel~~ — done, see the retirement note above
 - ~~Per-card subtitle fetch~~ — **done 2026-09-27**, `8057d7a` + `c5e40d5` in
   `folder_organizer`. The ＋sub button only *enqueues* into

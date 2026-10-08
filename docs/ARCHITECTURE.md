@@ -20,7 +20,7 @@ The canonical app is a **Flask application** (`system_manager/`) that mounts fea
 │  │                  data read from the bind-mounted sibling   │
 │  ├─ inventory/     — hardware inventory blueprint + SQLite   │
 │  ├─ packages/      — host dpkg/apt indexes, read-only        │
-│  ├─ network_manager/ — interfaces/routes/DNS/ports/conntrack │
+│  ├─ network_manager/ — host net, parsed from /host/proc/1/net │
 │  ├─ connectivity.py — opt-in gateway/DNS/HTTPS probes        │
 │  ├─ notifier.py    — 5-min thread, notify-send per new cond. │
 │  └─ __init__.py    — create_app(), /, /api/status, /modules  │

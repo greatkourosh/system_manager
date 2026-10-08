@@ -296,9 +296,13 @@ docker logs system-manager
 # Test mounts
 docker exec system-manager ls /host/proc /host/sys /host/etc
 # Test commands
-docker exec system-manager /usr/sbin/ip -j address show
 docker exec system-manager /usr/bin/nmcli -t -f NAME,TYPE,DEVICE con show
 docker exec system-manager /usr/bin/systemctl --user list-units --type=service
+# The network module parses procfs, so verify the host's view, not `ip`.
+# `ip` inside the container reports the container's own 2 interfaces; the
+# /network page reports the host's ~53.
+docker exec system-manager ls /host/proc/1/net
+docker exec system-manager head -3 /host/proc/1/net/dev
 ```
 
 ### Auth not working

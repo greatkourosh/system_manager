@@ -50,11 +50,11 @@ each time you need to log in. `/health` is the only unauthenticated endpoint.
   - `inventory` — hardware inventory (SQLite store, CRUD + export)
   - `packages` — the host's upgradable apt set, read-only; renders the commands, runs none
   - `journal` — journal search by priority, unit and time, read-only via `journalctl --root`
-  - `network_manager` — interfaces, routes, DNS, listening ports, conntrack, read-only under `/network`
+  - `network_manager` — the **host's** interfaces, routes, DNS, listening ports and conntrack, parsed from `/host/proc/1/net/*`; read-only under `/network`, and the page names the stack it read
 - **Templates/static** under `templates/`, `static/` (Jinja, vanilla JS/CSS)
 - **Collector library** (`server.py`, stdlib-only, no HTTP layer) — imported by `system_manager/` for its collectors, connectivity probes and action primitives. Its standalone panel was retired 2026-09-26.
 - **Containerized** with host mounts for `/proc`, `/sys`, `/etc`, dbus, and (read-only) the host's dpkg database and apt indexes
-- **191 unit/integration tests** (`tests/test_server.py`, `tests/test_flask_app.py`, `tests/test_connectivity.py`, `tests/test_inventory.py`, `tests/test_lock.py`, `tests/test_packages.py`, `tests/test_notifier.py`, `tests/test_journal.py`, `tests/test_thresholds.py`, `tests/test_tag_detect.py`, `tests/test_network.py`)
+- **222 unit/integration tests** (`tests/test_server.py`, `tests/test_flask_app.py`, `tests/test_connectivity.py`, `tests/test_inventory.py`, `tests/test_lock.py`, `tests/test_packages.py`, `tests/test_notifier.py`, `tests/test_journal.py`, `tests/test_thresholds.py`, `tests/test_tag_detect.py`, `tests/test_network.py`). 8 fail in this environment, all pre-existing DNS-resolution failures in `test_connectivity.py` and `test_server.py`, unrelated to any module.
 
 ## Documentation
 

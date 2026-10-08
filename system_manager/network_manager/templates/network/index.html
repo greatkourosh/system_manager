@@ -4,8 +4,8 @@
 <div class="page-head">
   <h1>Network</h1>
   <p class="muted">
-    Read-only view of the host&rsquo;s network stack. Nothing here changes
-    anything &mdash; the commands below are for you to copy and run yourself.
+    Read-only view of the network stack, read from procfs. Nothing here
+    changes anything.
   </p>
 </div>
 
@@ -25,7 +25,7 @@
   <h2>Routes</h2>
   <div class="pkg-table-wrap">
     <table class="pkg-table">
-      <thead><tr><th>Destination</th><th>Gateway</th><th>Device</th><th>Protocol</th></tr></thead>
+      <thead><tr><th>Destination</th><th>Gateway</th><th>Device</th><th>Source</th></tr></thead>
       <tbody id="routes"></tbody>
     </table>
   </div>
@@ -40,14 +40,16 @@
   <h2>Listening Ports</h2>
   <div class="pkg-table-wrap">
     <table class="pkg-table">
-      <thead><tr><th>Proto</th><th>Address</th><th>Port</th><th>PID</th><th>Process</th></tr></thead>
+      <thead><tr><th>Proto</th><th>Address</th><th>Port</th><th>PID</th></tr></thead>
       <tbody id="ports"></tbody>
     </table>
   </div>
+  <p class="muted" id="ports-note"></p>
 </section>
 
 <section>
   <h2>Connections</h2>
+  <p class="muted">The kernel's connection-tracking table, when the host exposes one.</p>
   <div class="pkg-table-wrap">
     <table class="pkg-table">
       <thead><tr><th>Proto</th><th>State</th><th>Source</th><th>Destination</th></tr></thead>
@@ -68,28 +70,39 @@ function text(v) {
   td.textContent = t;
   return td.outerHTML;
 }
-function fill(sel, rows) {
+function fill(sel, rows, cols) {
   document.querySelector(sel).innerHTML =
     rows.length ? rows.map(cells => '<tr>' + cells.map(text).join('') + '</tr>').join('')
-                : '<tr><td colspan="9" class="muted">None.</td></tr>';
+                : '<tr><td colspan="' + (cols || 9) + '" class="muted">None.</td></tr>';
 }
 Promise.all([get('/summary'), get('/interfaces'), get('/routes'), get('/dns'), get('/ports'), get('/conntrack')])
   .then(([sum, ifs, rts, dns, ports, ct]) => {
     document.getElementById('summary').innerHTML =
-      '<p class="muted"><strong>' + sum.hostname.hostname + '</strong> (' + sum.hostname.domain +
-      ') &mdash; ' + sum.interfaces + ' interfaces, ' + sum.routes + ' routes, ' +
+      '<p class="muted"><strong>' + sum.hostname.hostname + '</strong> &mdash; ' +
+      sum.interfaces + ' interfaces, ' + sum.routes + ' routes, ' +
       sum.listening_ports + ' listening sockets, DNS: ' +
-      ((sum.dns_servers || []).join(', ') || 'none') + '</p>';
-    fill('#ifaces', ifs.map(i => [i.name, i.state, i.mac, (i.ipv4 || []).join(', '), (i.ipv6 || []).join(', '), i.mtu]));
-    fill('#routes', rts.map(r => [r.dst || 'default', r.gateway, r.dev, r.protocol]));
+      ((sum.dns_servers || []).join(', ') || 'none') +
+      '</p><p class="muted">Source: ' + (sum.source || 'unknown') + '.</p>';
+    fill('#ifaces', ifs.map(i => [i.name, i.state, i.mac, (i.ipv4 || []).join(', '), (i.ipv6 || []).join(', '), i.mtu]), 6);
+    fill('#routes', rts.map(r => [r.dst || 'default', r.gateway, r.dev, r.family]), 4);
     document.getElementById('dns').innerHTML =
       (dns.servers && dns.servers.length)
         ? dns.servers.map(s => '<li>' + s + '</li>').join('')
         : '<li class="muted">None.</li>';
-    fill('#ports', ports.map(p => [p.proto, p.local_ip, p.local_port, p.pid, p.exe]));
-    fill('#ct', ct.slice(0, 200).map(c => [c.proto, c.state, c.src_ip + ':' + c.src_port, c.dst_ip + ':' + c.dst_port]));
+    const owner = p => (p.pid === null || p.pid === undefined);
+    fill('#ports', ports.map(p => [p.proto, p.local_ip, p.local_port,
+      owner(p) ? '—' : (p.pid + (p.exe ? ' (' + p.exe.split('/').pop() + ')' : ''))]), 4);
+    // File-descriptor directories are readable only for our own processes, so
+    // root-owned sockets stay unattributed. Say which ones, rather than leaving
+    // a column that reads like missing data.
+    const orphans = ports.filter(owner).length;
+    document.getElementById('ports-note').textContent = orphans
+      ? 'PID is unknown for ' + orphans + ' of ' + ports.length +
+        ' sockets: their processes run as another user, whose file descriptors are not readable.'
+      : '';
+    fill('#ct', ct.slice(0, 200).map(c => [c.proto, c.state, c.src_ip + ':' + c.src_port, c.dst_ip + ':' + c.dst_port]), 4);
     if (ct.length > 200) document.getElementById('ct-note').textContent = 'Showing the first 200 of ' + ct.length + ' tracked connections.';
-    else if (!ct.length) document.getElementById('ct-note').textContent = 'No conntrack data (table empty or permission denied).';
+    else if (!ct.length) document.getElementById('ct-note').textContent = 'This kernel exposes no conntrack table, so there is nothing to list.';
   })
   .catch(err => {
     document.getElementById('summary').innerHTML = '<p class="conn-error">Could not load network data: ' + err.message + '</p>';
