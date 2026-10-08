@@ -51,6 +51,12 @@ Pure functions, no side effects. Each collector returns a normalized dict with `
 | `routes` | `ip -j -4/-6 route show default` | Gateway, device per family |
 | `nameservers` | `/etc/resolv.conf` | List of nameserver IPs |
 
+These three are used by the **connectivity probes**, not by `/network`. They
+shell out to `ip` and read `/etc/resolv.conf` unprefixed, so they report the
+container's view. The `/network` page needs the host's, and parses
+`/host/proc/1/net/*` instead — see `network_manager/hostnet.py` for why
+`/host/proc/net/*` cannot work and `nsenter` is unavailable.
+
 ### `connectivity_checks()` — Opt-In Active Probes
 Only runs when `config.enabled == true`. Uses configured destination (validated HTTPS URL).
 

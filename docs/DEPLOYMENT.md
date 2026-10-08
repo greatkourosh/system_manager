@@ -135,6 +135,11 @@ The image is `python:3.14-slim` plus iproute2/net-tools/network-manager/systemd,
 so **`curl` and `jq` are not installed inside the container**. Check health with
 Python, which is present:
 
+> `iproute2` is still required, by `server.py`'s connectivity probes, which shell
+> out to `ip -j`. The `/network` module does **not** use it — it parses procfs,
+> because `ip` inside a container reports the container's own stack, not the
+> host's.
+
 ```bash
 docker exec system-manager python3 -c "import urllib.request,sys,json; d=json.load(urllib.request.urlopen('http://localhost:4000/health')); sys.exit(0 if d['status']=='ok' else 1)"
 ```
