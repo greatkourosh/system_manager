@@ -100,7 +100,8 @@ across all modules means auth. Check the session before editing a loader.
 **Diagnostic note:** media paths in `video_library.json` are **Windows** (`G:\…`)
 and will *always* fail `os.path.exists()` on this host — the drive is really at
 `/media/kourosh/Multimedia`. That is not a missing library and not a broken
-scan; 424/446 cards resolve once `G:` is stripped and `\` swapped for `/`. Do
+scan; all 427 of the `G:` cards resolve once `G:` is stripped and `\` swapped
+for `/`. Do
 not conclude the library is absent, and do not "fix" the scanner, before trying
 the translation. (Details in the subtitle task under Next Steps.)
 
@@ -785,8 +786,12 @@ written; `scripts/` does not exist in this project.
 
 ## Git Status
 
-Clean through `a691102` ("fix: report the host's hostname, not the
-container's"). Milestone 15 (the organizer as a real blueprint) is `4f5f00b`;
+Clean through `eeb2db8` ("docs: Milestone 20, and the substring bug behind
+it"). Milestone 15 (the organizer as a real blueprint) is `4f5f00b`. The sibling
+checkout is clean through `35c6f62`: `fa55804` dropped 23 dead
+`video_library*.json` variants, `ee169fb` added the Oct 1–5 host tooling
+(`media_path` reuse, `gone` status, `.bak`, genre-needle sync), and `35c6f62`
+made the scanner emit every episode in `videos[]` instead of one sample;
 Milestone 5 completed in `d1ac423`. The 2026-09-26 verification pass
 (Milestone 6) was documentation-only. A later pass on the same day fixed four
 container/host bugs — see the Milestone 7 entry, and Milestone 9 below.
@@ -1037,14 +1042,15 @@ port-4000 proxy.
 
 ### Requested: richer filters + sorting on the Video Library page
 
-**Where the code lives:** this is a change to the **`folder_organizer` checkout**,
-not to this repo. `data/video_library.json`, `app.py` (`/videos`), and
-`templates/videos.html` are all in `../folder_organizer`, which is bind-mounted
-into the container. `system_manager/organizer.py` only proxies it, so the host
-app needs no change (the filters are plain query params, so no new `fetch`/`post`
-call sites and no edit to the `_JS_CALL_RE` rewrite).
+**Where the code lives:** the page itself is this repo's
+`system_manager/organizer/` blueprint (`api.py` `/videos`,
+`templates/organizer/videos.html`), since the merge in Milestone 15. Only the
+*data* it reads is in the sibling: `data/video_library.json`, bind-mounted into
+the container. The filters are plain query params, so adding more means no new
+`fetch`/`post` call sites and no URL rewriting — that machinery died with the old
+proxy.
 
-**Today's filters** (`app.py:99-135`): `q` (title substring), `root`
+**Today's filters** (`organizer/api.py:357-385`): `q` (title substring), `root`
 (all/movies/serials/videos), `genre` (exact match against a comma-split list),
 `sub` (all/missing-fa/missing-en/missing-both), `page`. 446 cards,
 `VIDEO_PAGE_SIZE = 36`. There is **no sort and no range filter at all** — the
@@ -1068,9 +1074,17 @@ it over the scrape above. 413/446 scored as of 2026-09-27. It is deliberately
 *not* merged into `video_library.json`, which `video_catalog.py build()`
 rewrites from scratch.
 
-Card keys are exactly: `dir, exts, folder, genres, has_en_sub, has_fa_sub, id,
-kind, limited, pop, poster, poster_id, rating, root, sample_video, season,
-seasons, sub_count, title, total_bytes, video_count, year`.
+Card keys present on **every** card: `dir, exts, folder, genres, has_en_sub,
+has_fa_sub, id, kind, pop, poster, poster_id, rating, root, sample_video,
+sub_count, title, total_bytes, video_count, videos`.
+
+Partial keys, all 124 serials: `limited`, `season`, `seasons`, `season_state`.
+Partial key, 322 cards: `year`.
+
+`videos` is new as of 2026-10-08 (Milestone 20) — a list of
+`{path, size_bytes, ext}`, one per file, 5050 in total. `video_count` and
+`sample_video` are both derivable from it, but they are kept because the
+template and the fetcher's fallback read them directly.
 
 **Gotchas to design around**
 
@@ -1243,59 +1257,72 @@ naive `os.path.exists()` returns `False` and the library *looks* absent. The
 `G:` drive is mounted at **`/media/kourosh/Multimedia`** (`/dev/sda2`, **ntfs3**,
 `rw`, `uid=1000`); its children match `config.json`'s `roots_windows` exactly
 (`G:/Movies`, `G:/Serials`, `G:/Videos` → `Movies`, `Serials`, `Videos`). Strip
-the `G:` prefix and swap `\` for `/` and **424 of 446 cards resolve**.
+the `G:` prefix and swap `\` for `/` and **every `G:` card resolves: 427 of 446,
+all 427 of those directories**. The other 19 are the unmounted `F:`/`E:` drives
+in the table below.
+
+That figure is per *card*, checked against `dir`. Checked per *file* it is
+weaker — 418 of 446 cards resolve in full, 9 partly, 19 not at all — because a
+card whose folder was renamed since the 2026-09-17 scan keeps its old paths in
+`videos[]`. See Milestone 20 for the 5050-file count.
 
 So the fix is a `G:\…` → `/media/kourosh/Multimedia/…` prefix rewrite, applied
 wherever a library path becomes a real path. It must be applied to `dir` and
-`sample_video` alike, and it belongs in `fetch_subtitles.py` / `app.py` — not
+every entry in `videos[]` alike, and it belongs in `fetch_subtitles.py` — not
 here. **Done 2026-09-27** as `folder_organizer/media_path.py` (`to_host_path`);
 the season scan is its first caller.
 
-**22 cards still don't resolve, and none of them are the feature's fault:**
+**Cards that don't resolve, and none of them are the feature's fault:**
 
 | Cause | Count | What they are |
 |---|---|---|
 | `F:` and `E:` drives not mounted | 19 | 17 are Dota 2 `.webm` game assets (`heroes`, `events`, `portraits`…) — no subtitles exist for these at all; 2 are `E:` |
 | Folder deleted since the 2026-09-17 scan | 3 | e.g. `1997 - Gattaca` → now `Gattaca.1997.1080p.Farsi.Dubbed.mkv` (the `- Copy` was removed) |
 
+That 22 was one file per card. Per *card* it still holds — 19 fully dead, 9
+partially resolving, 418 whole — but per *file* the two counts diverge, because
+the dead folders hold many files each: **5050 files, 220 unreachable**, split
+146 on the unmounted `E:` and 74 in deleted `G:` folders. `videos[]` is what
+makes the two numbers differ; see Milestone 20.
+
 Filtering to cards that are actually present and actually wantable subtitles
 leaves the real target set:
 
+**All counts below were measured 2026-10-08** and the earlier version of this
+section is superseded — they were taken one file per card, before the fetcher
+could see a whole card. Recounted with `videos[]` in place:
+
 | | Count |
 |---|---|
-| Cards needing FA **or** EN | 410 |
-| — unresolvable (F:/E:/deleted) | 22 |
-| — **actually fetchable** | **388** (268 movies, 108 serials, 12 videos) |
-
-The 17 Dota 2 asset folders should be excluded by rule, not by path failure —
-they'd otherwise be 17 permanent "no subtitles found" failures per language.
+| Cards in the fetch plan | 429 |
+| Cards skipped entirely (all files are game assets) | 17 |
+| **Subtitle files needed** | **4 967** |
+| — unreachable (146 on unmounted `E:`, 74 deleted folders) | 220 |
 
 **Quota makes "fetch all" a trap.** OpenSubtitles free tier is **~20
-downloads/24h**. The real set needs:
+downloads/24h**, so 4967 downloads is **~8 months**. The 17 Dota 2 asset folders
+are excluded by rule (`GAME_DIRS`, matched per path component) rather than by
+path failure — otherwise each is a permanent "no subtitles found" per language.
 
-| Strategy | Downloads | Wall-clock at free tier |
-|---|---|---|
-| **1 file per card** (what the script does today) | **589** | ~30 days |
-| **1 file per video** (correct for serials) | **2 221** | ~4 months |
-
-1204 actual video files sit behind those 388 cards, and **0 of 446 cards carried
-a `videos[]` key** — the fetcher fell back to `c["sample_video"]`, so a
-24-episode serial got one subtitle file and 23 episodes with none. **Done
-2026-10-08** as `35c6f62`; the scanner already grouped by main item (commit
-`bfc1938`, 782→446 cards), it just never wrote the group out. All 446 cards
-carry their full list now — 5050 files. The two rows of the table above are
-therefore obsolete in the *pessimistic* direction: the real number is 4967
-downloads, not 2221. See Milestone 20.
+**Why this number is so much larger than the old estimate.** Until 2026-10-08
+**0 of 446 cards carried a `videos[]` key**; the fetcher fell back to
+`c["sample_video"]`, so a 24-episode serial got one subtitle file and 23
+episodes with none, and the whole plan read as 589 downloads. The scanner
+already grouped by main item (commit `bfc1938`, 782→446 cards) — it just never
+wrote the group out. One line (`35c6f62`); all 446 cards carry their full list
+now, 5050 files. The old 589 / 2221 table is not wrong so much as measuring a
+different, smaller thing. See Milestone 20.
 
 Given those numbers, the page must **default to dry-run and show a per-run cap**
 — the existing script already takes `--budget` and `--limit` for exactly this.
 A one-click "fetch all" would surface as ~2 200 failures a month apart.
 
-**Already filtered for you.** The page's `sub` param (`app.py:110-128`) already
-does `missing-fa` / `missing-en` / `missing-both`, so a "fetch what's missing"
-action can be scoped to the current filter with no new query param. The card
-badges at `videos.html:59-61` already show FA/EN state per card, so the button
-can sit right there and only appear when a badge is missing.
+**Already filtered for you.** The page's `sub` param
+(`organizer/api.py:357-385`) already does `missing-fa` / `missing-en` /
+`missing-both`, so a "fetch what's missing" action can be scoped to the current
+filter with no new query param. The card badges in `videos.html` already show
+FA/EN state per card, so the button can sit right there and only appear when a
+badge is missing.
 
 ### Requested: series-state badges + a "Recommended" badge
 

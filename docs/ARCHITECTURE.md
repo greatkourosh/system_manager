@@ -236,12 +236,15 @@ index.html (served by /)
 | Contract | Fixtures + mocks | Malformed input, timeouts, permission errors, unavailable sensors |
 | Smoke | Manual / browser | Full UI flow, container mounts, real system data |
 
-Run: `cd tests && PYTHONPATH=<repo root> python3 -m unittest discover` (222 tests, ~4s).
+Run: `cd tests && PYTHONPATH=<repo root> python3 -m unittest discover` (224 tests, ~4s).
 **The interpreter must be 3.12+.** `server.valid_endpoint()` calls
 `port.is_integer()`, which is 3.12+; on 3.11 it takes the `except AttributeError`
 branch and returns `None` for every valid URL, which fails 8 connectivity tests
 and reads exactly like a DNS problem.
-Test modules: `test_server.py` (19 — collectors, cache and actions), `test_connectivity.py` (11 — config, scan cadence, endpoint validation, API auth), `test_flask_app.py` (17 — Flask auth, approval flow, subprocess env), `test_lock.py` (19 — module blueprint gating, and the organizer's rendered URLs: nav prefixes, the `U` endpoint map, and that no page still calls a bare `/api/…`), `test_inventory.py` (5 — store + API), `test_packages.py` (29 — version ordering, index parsing, the page), `test_notifier.py` (17 — condition derivation, announce-once, retry, API auth), `test_journal.py` (28 — entry parsing, filter safety, the mount-error path, auth), `test_thresholds.py` (24 — configurable notification thresholds), `test_tag_detect.py` (11 — music tag detection: the nested layout, genre needle boundaries, no placeholder fallback), `test_network.py` (42 — hostnet parsing (two IPv6 byte orders, longest-prefix attribution, `source` values), socket inode attribution, and the network page's script/markup agreement). These sum to 222.
+Test modules: `test_server.py` (19 — collectors, cache and actions), `test_connectivity.py` (11 — config, scan cadence, endpoint validation, API auth), `test_flask_app.py` (17 — Flask auth, approval flow, subprocess env), `test_lock.py` (19 — module blueprint gating, and the organizer's rendered URLs: nav prefixes, the `U` endpoint map, and that no page still calls a bare `/api/…`), `test_inventory.py` (5 — store + API), `test_packages.py` (29 — version ordering, index parsing, the page), `test_notifier.py` (17 — condition derivation, announce-once, retry, API auth), `test_journal.py` (28 — entry parsing, filter safety, the mount-error path, auth), `test_thresholds.py` (24 — configurable notification thresholds), `test_tag_detect.py` (11 — music tag detection: the nested layout, genre needle boundaries, no placeholder fallback), `test_network.py` (44 — hostnet parsing (two IPv6 byte orders, longest-prefix attribution, `source` values), socket inode attribution, and the network page's script/markup agreement). These sum to 224.
+
+The sibling `../folder_organizer` checkout has its own suite — 9 tests, run the
+same way with `PYTHONPATH=../folder_organizer`.
 
 ## Extensibility Points
 

@@ -4,10 +4,10 @@ Ported from the standalone ``server.py`` handler so the Flask app exposes the
 same single-use approval flow: services, NetworkManager profiles, preview ->
 approve -> execute -> verify, backed by a SQLite audit log.
 
-Auth is intentionally disabled by default for local development (same as
-``server.py`` with ``DISABLE_AUTH=1``). Enable by setting ``AUTH_TOKEN_PATH``
-to a writable file path; the server writes a fresh random access code there
-and each login session lasts eight hours, mirroring the standalone panel.
+Auth is on unless ``DISABLE_AUTH=1`` (``create_app`` reads that name; the
+``SYSTEM_MANAGER_DISABLE_AUTH`` constant below is the standalone ``server.py``
+name and is not consulted here). The access code is written to the file at
+``SYSTEM_MANAGER_AUTH_TOKEN_PATH``, and each login session lasts eight hours.
 """
 import hashlib
 import json

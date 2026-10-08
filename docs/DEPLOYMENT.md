@@ -163,7 +163,7 @@ not a valid liveness check.
 ```bash
 pip install -r requirements.txt
 python3 run.py            # Flask app on http://127.0.0.1:8200/
-# Authorisation disabled by default; set DISABLE_AUTH=0 + a token path to enable.
+# Authorisation is on by default; set DISABLE_AUTH=1 to skip the access code.
 ```
 
 There is no standalone panel any more. `server.py` is a library of read-only

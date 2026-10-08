@@ -1,5 +1,12 @@
 # Merge folder_organizer's web half into system_manager
 
+> **Completed in Milestone 15** (see `CONTINUATION.md`). This plan is kept for
+> history only — do not work through it. The web half landed as the
+> `system_manager/organizer` blueprint, `folder_organizer/app.py` and its
+> `templates/` were deleted from the sibling, and the old `organizer.py` proxy
+> loader and its URL rewriter are gone. The tasks below describe the state
+> *before* the merge and are written in the future tense on purpose.
+
 ## Where this actually stands
 
 The merge is **already half-written and unwired**. `system_manager/organizer/`

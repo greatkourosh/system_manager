@@ -54,7 +54,7 @@ each time you need to log in. `/health` is the only unauthenticated endpoint.
 - **Templates/static** under `templates/`, `static/` (Jinja, vanilla JS/CSS)
 - **Collector library** (`server.py`, stdlib-only, no HTTP layer) — imported by `system_manager/` for its collectors, connectivity probes and action primitives. Its standalone panel was retired 2026-09-26.
 - **Containerized** with host mounts for `/proc`, `/sys`, `/etc`, dbus, and (read-only) the host's dpkg database and apt indexes
-- **222 unit/integration tests** (`tests/test_server.py`, `tests/test_flask_app.py`, `tests/test_connectivity.py`, `tests/test_inventory.py`, `tests/test_lock.py`, `tests/test_packages.py`, `tests/test_notifier.py`, `tests/test_journal.py`, `tests/test_thresholds.py`, `tests/test_tag_detect.py`, `tests/test_network.py`), all passing. Run them on **Python 3.12+** — see `ARCHITECTURE.md` for why 3.11 fails 8 of them.
+- **224 unit/integration tests** (`tests/test_server.py`, `tests/test_flask_app.py`, `tests/test_connectivity.py`, `tests/test_inventory.py`, `tests/test_lock.py`, `tests/test_packages.py`, `tests/test_notifier.py`, `tests/test_journal.py`, `tests/test_thresholds.py`, `tests/test_tag_detect.py`, `tests/test_network.py`), all passing, plus 9 more in the sibling `../folder_organizer` checkout. Run them on **Python 3.12+** — see `ARCHITECTURE.md` for why 3.11 fails 8 of them.
 
 ## Documentation
 
