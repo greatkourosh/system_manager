@@ -785,11 +785,18 @@ written; `scripts/` does not exist in this project.
 
 ## Git Status
 
-Clean through `90e68a5` ("fix: stop the tag detector guessing"). Milestone 15
-(the organizer as a real blueprint) is `4f5f00b`; Milestone 5 completed in
-`d1ac423`. The 2026-09-26 verification pass (Milestone 6) was documentation-only.
-A later pass on the same day fixed four container/host bugs — see the Milestone 7
-entry, and Milestone 9 below. **224 tests pass, 0 failures** (2026-10-08).
+Clean through `a691102` ("fix: report the host's hostname, not the
+container's"). Milestone 15 (the organizer as a real blueprint) is `4f5f00b`;
+Milestone 5 completed in `d1ac423`. The 2026-09-26 verification pass
+(Milestone 6) was documentation-only. A later pass on the same day fixed four
+container/host bugs — see the Milestone 7 entry, and Milestone 9 below.
+**224 tests pass, 0 failures** (2026-10-08).
+
+The sibling checkout (`../folder_organizer`) is clean through `35c6f62`. It
+spent the whole of Milestone 18 and 19's aftermath with 27 files uncommitted —
+23 staged deletions plus four host-tooling edits that had never been documented
+anywhere. All three are committed as of Milestone 20 below; **9 tests pass
+there.**
 
 > The "8 failing on DNS" this line carried until 2026-10-08 was never a DNS
 > problem. `server.valid_endpoint()` calls `port.is_integer()`, which is 3.12+;
@@ -1206,27 +1213,28 @@ running server), plus 73 passed / 0 failed for the live
 
 ### Requested: auto-download subtitles for series/movies missing them
 
-**Status 2026-09-27: unblocked, not started.**
+**Status 2026-10-08: built; the fetch itself runs host-side and is manual.**
 The `G:` blocker below was stale — the volume is mounted and the translation is
-mechanical. It now exists as `folder_organizer/media_path.py`
-(`to_host_path`, used by the season scan), so the remaining work is only the
-per-card button. The counters and caveats below still stand.
+mechanical, and it now exists as `folder_organizer/media_path.py`
+(`to_host_path`).
 
-For every card on `/organizer/videos` that lacks a subtitle, add an option to
-auto-fetch it. **A fetcher already exists and is not wired to the page** —
-`folder_organizer/fetch_subtitles.py` targets exactly this set, and has run
-successfully: `commands_to_run/subtitle_log.txt` records **45 `FETCHED` lines**
-against 59 `FAIL`/`NO-RESULT` (last run 2026-09-02, `mode=APPLY: fetched=25
-failed=1 checked=26`). The work is therefore to expose it as a UI action, not
-to write a downloader.
+The UI is done: `fetch_subtitles.py` is reached through the blueprint route
+`POST /organizer/api/subtitles/queue`, with a per-card **＋sub** button and a
+`sub=` filter on `/organizer/videos`. The container has no media mount and no
+OpenSubtitles credentials, so it cannot fetch anything itself — it records what
+the user asked for and `subtitle_runner.py` does the work on the host, 20
+downloads/day. **What the fetcher was told to fetch was wrong until
+Milestone 20** (one file per card instead of every episode); that is fixed.
 
-**Where code lives:** the **`folder_organizer` checkout**, not this repo.
-`app.py` (new `POST` route), `templates/videos.html` (per-card control),
-`fetch_subtitles.py` (reused as a library, or shelled out to). Because a new
-`post('/api/...')` call site is involved, `system_manager/organizer.py`'s
-`_JS_CALL_RE` already covers it — the regex prefixes any `/…` literal that is not
-already under `/organizer`, so a new endpoint is rewritten for free. No change
-to this repo needed.
+The fetcher has run successfully: `commands_to_run/subtitle_log.txt` records
+**45 `FETCHED` lines** against 59 `FAIL`/`NO-RESULT` (last run 2026-09-02,
+`mode=APPLY: fetched=25 failed=1 checked=26`).
+
+**Where code lives:** now **this repo**, since Milestone 15. The route is
+`system_manager/organizer/api.py` and the control is
+`system_manager/organizer/templates/organizer/videos.html`; the fetcher stays
+in the `folder_organizer` checkout, reached over the queue file. The
+`_JS_CALL_RE` rewrite described below is gone with the old standalone app.
 
 **The blocker, now solved: the library IS on this host — the paths just need
 translating.** `data/video_library.json` stores **Windows** paths, e.g.
@@ -1270,12 +1278,14 @@ downloads/24h**. The real set needs:
 | **1 file per card** (what the script does today) | **589** | ~30 days |
 | **1 file per video** (correct for serials) | **2 221** | ~4 months |
 
-1204 actual video files sit behind those 388 cards, and **0 of 446 cards carry
-a `videos[]` key** — the fetcher falls back to `c["sample_video"]`, so a
-24-episode serial would get one subtitle file and 23 episodes with none. Fixing
-the scanner to emit `videos[]` (it already groups by main item — commit
-`bfc1938`, 782→446 cards) is the real fix; re-globbing `dir` at fetch time is a
-one-line unblocker.
+1204 actual video files sit behind those 388 cards, and **0 of 446 cards carried
+a `videos[]` key** — the fetcher fell back to `c["sample_video"]`, so a
+24-episode serial got one subtitle file and 23 episodes with none. **Done
+2026-10-08** as `35c6f62`; the scanner already grouped by main item (commit
+`bfc1938`, 782→446 cards), it just never wrote the group out. All 446 cards
+carry their full list now — 5050 files. The two rows of the table above are
+therefore obsolete in the *pessimistic* direction: the real number is 4967
+downloads, not 2221. See Milestone 20.
 
 Given those numbers, the page must **default to dry-run and show a per-run cap**
 — the existing script already takes `--budget` and `--limit` for exactly this.
@@ -1514,3 +1524,51 @@ Verified live after `docker compose build` + `up -d --force-recreate` (the app i
 now reports `kourosh-pc` with `source: the host`, and 53 interfaces / 168 routes
 match the host's `ls /sys/class/net` (52) plus the container's own veth. All
 seven dashboard pages return 200. **224 tests pass, 0 failures.**
+
+### 2026-10-08 — Milestone 20: the scanner stopped dropping the episode list
+
+The subtitle request above (line 1275) called the missing `videos[]` key "the
+real fix" for a 24-episode serial getting one subtitle for 24 episodes. It was
+never missing data — `video_catalog.build()` grouped each card's files into
+`g["videos"]` and then wrote only `video_count` and `g["videos"][0]["path"]`.
+The list existed at every step and was dropped on the last line. One line writes
+it out; the 446 cards now carry all **5050** files.
+
+**Rebuilding the library is safe here, unlike the poster flag.** Card ids are
+`root|folder|dir` and so are stable across a rebuild, ratings live in the
+`ratings_state.json` sidecar rather than on the card, and `videos_page` derives
+the poster flag from the `.b64` files on disk (cause 1 of the poster wipe).
+Verified rather than assumed: of 446 cards, **0 ids lost, 0 gained, and 0 cards
+changed in any field other than the new key.** The file goes 0.42 MB → 1.49 MB,
+which costs nothing at the page — `videos[]` is not rendered, so the response
+is 68 KB at 16 ms either way.
+
+**Making the fetch correct surfaced 535 paths that were never reachable before.**
+`fetch_subtitles` only ever saw one file per card, so the 17 Dota 2 asset
+folders the doc above predicted ("should be excluded by rule, not by path
+failure") had in practice been hit once each, not 535 times. The plan is now
+429 cards / **4967** subtitle files, against 441 cards / 630 before.
+
+| | Cards | Subtitle files | Unreachable paths |
+|---|---|---|---|
+| Before (one file per card) | 441 | 630 | 22 |
+| After (every episode) | 429 | 4967 | 220 |
+
+**The exclusion rule had to stop being a substring, and that was the real bug.**
+Adding `GAME_DIRS` as `x in path.lower()` excluded two real movies — *Leave the
+World Behind* and *Behind Her Eyes* — because `behind` matches both, and the
+episode `s01e02 - The Extras.mkv`. Matching is now per path component, which is
+what the doc's own `tag_detect.py` fix did in Milestone 16; this is the second
+copy of that mistake. `tests/test_fetch_subtitles.py` pins all three real
+titles, and was confirmed **red** against the substring form before the fix.
+
+> Rule: a substring match over a path is a guess about words, not about
+> structure. Split on the separator and compare the pieces.
+
+The 220 unreachable paths are the same drift as the old 22, now counted per file
+rather than per card: 146 on the unmounted `E:` drive, 74 in folders deleted
+since the scan. Nothing to fix — the fetcher skips them.
+
+Sibling commits: `fa55804` (Milestone 18's deletions), `ee169fb` (the
+`media_path`/`gone`/genre-needle work that was sitting uncommitted), `35c6f62`
+(this one). **224 tests pass here, 9 in the sibling.**
