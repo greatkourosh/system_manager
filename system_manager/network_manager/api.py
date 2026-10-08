@@ -5,8 +5,6 @@ host even when this runs in the container. hostnet.scoped_label() says
 which host, and /network/summary reports it, so the page never implies more
 than it knows.
 """
-import socket
-
 from flask import Blueprint, jsonify, render_template
 
 from . import hostnet
@@ -17,7 +15,7 @@ network_bp = Blueprint("network_api", __name__)
 @network_bp.route("/summary")
 def summary():
     return jsonify({
-        "hostname": {"hostname": socket.gethostname(), "domain": ""},
+        "hostname": {"hostname": hostnet.hostname(), "domain": ""},
         "interfaces": len(hostnet.interfaces()),
         "routes": len(hostnet.routes()),
         "dns_servers": hostnet.dns_servers(),

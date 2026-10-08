@@ -695,8 +695,10 @@ docker compose exec system-manager cat /data/access-code
 
 ### Tests
 ```bash
-cd tests && PYTHONPATH=<repo root> python3 -m unittest discover
-# 222 tests, ~4s, all passing — on Python 3.12 or newer.
+cd tests && PYTHONPATH=<repo root> \
+  uv run --python 3.14 --with flask==3.0.3 --with gunicorn==22.0.0 \
+  --no-project python -m unittest discover
+# 224 tests, ~4s, all passing — on Python 3.12 or newer.
 ```
 
 ---
@@ -787,7 +789,7 @@ Clean through `90e68a5` ("fix: stop the tag detector guessing"). Milestone 15
 (the organizer as a real blueprint) is `4f5f00b`; Milestone 5 completed in
 `d1ac423`. The 2026-09-26 verification pass (Milestone 6) was documentation-only.
 A later pass on the same day fixed four container/host bugs — see the Milestone 7
-entry, and Milestone 9 below. **222 tests pass, 0 failures** (2026-10-08).
+entry, and Milestone 9 below. **224 tests pass, 0 failures** (2026-10-08).
 
 > The "8 failing on DNS" this line carried until 2026-10-08 was never a DNS
 > problem. `server.valid_endpoint()` calls `port.is_integer()`, which is 3.12+;
@@ -797,6 +799,18 @@ entry, and Milestone 9 below. **222 tests pass, 0 failures** (2026-10-08).
 > other 5 failures are in `test_connectivity.py`, which builds on the same
 > helper. On 3.14 all 14 pass; `valid_endpoint` resolves nothing, and the DNS
 > callers (`server.py:76`, `server.py:99`) are stubbed by these tests.
+>
+> **The 3.11 venv in this checkout is the cause, and it is still there.** The
+> committed `.venv/` is ignored by git and owned by uid 10000 with mode 755, so
+> it cannot be rebuilt in place as kourosh; it also has no Flask, so
+> `unittest discover` under it fails at import. Run the suite ephemerally
+> instead — `./.venv` is not the supported way to run these tests:
+>
+> ```bash
+> cd tests && PYTHONPATH=<repo root> \
+>   uv run --python 3.14 --with flask==3.0.3 --with gunicorn==22.0.0 \
+>   --no-project python -m unittest discover
+> ```
 
 ### 2026-10-08 — Milestone 16: the network module, made reachable
 
@@ -1457,3 +1471,46 @@ immediately — nothing broke, because nothing imported them.
 > target and `GET` the page; never `POST` to a live write route.** All ten
 > pages carry `href`/`action` through `url_for`, and no template holds a bare
 > `/api/` string literal, so the static check is sufficient on its own.
+
+### 2026-10-08 — Milestone 19: the hostname was still the container's
+
+Milestone 17 routed the whole network module through `hostnet.py` so `/network/`
+would describe the host. One field survived the sweep: `api.py:20` built the
+summary's `hostname` from `socket.gethostname()`. Everything else in that module
+reads the host's namespace out of `/host/proc/1/net/`, so this one line was the
+only place left that could report the container — and it did. Live
+`/network/summary` returned `"hostname": "6443c0ed182a"`, the container's ID,
+underneath a `"source": "the host"` label.
+
+**The same trap as the mount, one namespace over.** `/proc/sys/kernel/hostname`
+is not usable from the container: procfs resolves it against the *reader's* UTS
+namespace, exactly as `/host/proc/net` resolves against the reader's pid
+namespace. Confirmed in the running container —
+
+| read | returns | the host's value |
+|---|---|---|
+| `socket.gethostname()` | `6443c0ed182a` | `kourosh-pc` |
+| `/host/proc/sys/kernel/hostname` | `6443c0ed182a` | `kourosh-pc` |
+| `/host/etc/hostname` | `kourosh-pc` | `kourosh-pc` |
+
+`hostnet.hostname()` reads `<HOST_ROOT>/etc/hostname` through the existing
+read-only `/etc` mount, and falls back to `socket.gethostname()` only when there
+is no host prefix — so bare-metal runs, and the test fixtures, are unaffected.
+A `grep -rn gethostname` over the repo returns no other call site; this was the
+last un-routed one.
+
+**The test passed on the bug, which is the part worth keeping.** The first
+version asserted `hostname() == "kourosh-pc"` — and this machine's real hostname
+*is* `kourosh-pc`, so the assertion was satisfied by `socket.gethostname()` and
+stayed green with the fix reverted. The sentinel is now generated and asserted
+to differ from `socket.gethostname()`, so the fallback cannot satisfy it.
+Confirmed failing before the fix and passing after.
+
+> Rule: a test that pins a value the environment already produces is not a test.
+> Compare against something the environment cannot produce.
+
+Verified live after `docker compose build` + `up -d --force-recreate` (the app is
+`COPY`'d into the image, so a host edit alone changes nothing): `/network/summary`
+now reports `kourosh-pc` with `source: the host`, and 53 interfaces / 168 routes
+match the host's `ls /sys/class/net` (52) plus the container's own veth. All
+seven dashboard pages return 200. **224 tests pass, 0 failures.**

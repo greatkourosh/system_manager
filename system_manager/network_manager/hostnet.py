@@ -25,8 +25,9 @@ import struct
 
 __all__ = [
     "decode_ipv6_network",
-    "host_root", "net_dir", "scoped_label", "interfaces", "routes", "dns_servers",
-    "listening_ports", "conntrack", "decode_ipv4", "decode_ipv6", "socket_state_name",
+    "host_root", "net_dir", "scoped_label", "hostname", "interfaces", "routes",
+    "dns_servers", "listening_ports", "conntrack", "decode_ipv4", "decode_ipv6",
+    "socket_state_name",
 ]
 
 # Socket states, indexed by the hex field in /proc/net/tcp*.
@@ -55,6 +56,25 @@ def scoped_label():
     if os.path.isdir(os.path.join(root, "proc/net")):
         return "the container (no pid namespace)"
     return "nothing (host mounts missing)"
+
+
+def hostname():
+    """The host's hostname, or this machine's when there is no host prefix.
+
+    /proc/sys/kernel/hostname cannot be used here: it resolves against the
+    reader's UTS namespace, so from the container it reads back the container
+    ID. /host/etc/hostname is a plain file through the read-only /etc mount.
+    """
+    root = host_root()
+    if root:
+        try:
+            with open(os.path.join(root, "etc/hostname")) as handle:
+                name = handle.read().strip()
+        except OSError:
+            name = ""
+        if name:
+            return name
+    return socket.gethostname()
 
 
 def net_dir():

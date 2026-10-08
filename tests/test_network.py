@@ -20,6 +20,7 @@ import json
 import os
 import re
 import shutil
+import socket
 import tempfile
 import unittest
 
@@ -335,6 +336,29 @@ class ScopeTests(unittest.TestCase):
             self.assertEqual(hostnet.routes(), [])
             self.assertEqual(hostnet.listening_ports(), [])
             self.assertEqual(hostnet.dns_servers(), [])
+        finally:
+            if previous is None:
+                os.environ.pop("HOST_ROOT", None)
+            else:
+                os.environ["HOST_ROOT"] = previous
+            shutil.rmtree(root, ignore_errors=True)
+
+    def test_hostname_is_the_hosts_not_the_containers(self):
+        """socket.gethostname() reads the container's UTS namespace, so from
+        inside the container it is the container ID, not the machine."""
+        sentinel = "host-machine-" + "x" * 8
+        self.assertNotEqual(sentinel, socket.gethostname())
+        with FakeHost(route=ROUTE) as fake:
+            with open(os.path.join(fake.root, "etc/hostname"), "w") as handle:
+                handle.write(sentinel + "\n")
+            self.assertEqual(hostnet.hostname(), sentinel)
+
+    def test_hostname_falls_back_to_the_local_machine_with_no_host_mount(self):
+        root = tempfile.mkdtemp(prefix="sm-emptyhost-")
+        try:
+            previous = os.environ.get("HOST_ROOT")
+            os.environ["HOST_ROOT"] = root
+            self.assertEqual(hostnet.hostname(), socket.gethostname())
         finally:
             if previous is None:
                 os.environ.pop("HOST_ROOT", None)
