@@ -695,10 +695,8 @@ docker compose exec system-manager cat /data/access-code
 
 ### Tests
 ```bash
-python3 -m pytest -q
-# 191 tests + 318 subtests, ~5s
-# 8 pre-existing failures in test_connectivity.py / test_server.py need working
-# DNS for api.example.org etc.; they fail the same way without any of my changes.
+cd tests && PYTHONPATH=<repo root> python3 -m unittest discover
+# 222 tests, ~4s, all passing — on Python 3.12 or newer.
 ```
 
 ---
@@ -789,8 +787,16 @@ Clean through `90e68a5` ("fix: stop the tag detector guessing"). Milestone 15
 (the organizer as a real blueprint) is `4f5f00b`; Milestone 5 completed in
 `d1ac423`. The 2026-09-26 verification pass (Milestone 6) was documentation-only.
 A later pass on the same day fixed four container/host bugs — see the Milestone 7
-entry, and Milestone 9 below. **191 tests pass, 8 of them failing on DNS**
-(see Milestone 16 — the failures are pre-existing and unrelated).
+entry, and Milestone 9 below. **222 tests pass, 0 failures** (2026-10-08).
+
+> The "8 failing on DNS" this line carried until 2026-10-08 was never a DNS
+> problem. `server.valid_endpoint()` calls `port.is_integer()`, which is 3.12+;
+> the suite had been run on a 3.11 interpreter, where that raises
+> `AttributeError` and returns `None` for every *valid* URL. `unittest` reports
+> the three URLs as subtest failures, which reads like resolution trouble. The
+> other 5 failures are in `test_connectivity.py`, which builds on the same
+> helper. On 3.14 all 14 pass; `valid_endpoint` resolves nothing, and the DNS
+> callers (`server.py:76`, `server.py:99`) are stubbed by these tests.
 
 ### 2026-10-08 — Milestone 16: the network module, made reachable
 
@@ -996,21 +1002,17 @@ port-4000 proxy.
   2026-09-27, see Milestone 11, and configurable thresholds landed 2026-09-28
   (Milestone 14). What remains is webhook/email, which is a security decision
   rather than a feature, so it is listed as blocked rather than pending.
-- **Finish the organizer merge: delete the sibling's old web app** — the
-  remaining item of Milestone 15. Remove `folder_organizer/app.py`, its
-  `templates/`, the standalone `:5001` Dockerfile/compose, and the tests that
-  `from app import …`: `test_app.py`, `test_hardening.py`, `test_programs.py`,
-  `test_run_cmd.py`, `test_videos.py`, `test_subtitle_queue.py`, **and also
-  `test_seasons.py` and `test_tmdb_ratings.py`** — the plan said to keep those
-  two, but both import the app. Only `test_video_catalog.py` and
-  `e2e_tags_check.py` genuinely survive.
-
-  **Do this only after a browser walk, not on a green suite.** Rebuild with
-  `docker compose build && docker compose up -d --force-recreate`, then visit
-  all ten pages and click the POST flows on `music/tags` and `select`; a bare
-  `/api/...` 404 in the console is the signature of a missed prefix. Milestone
-  15 had two bugs that rendered perfect HTML and returned 200 while failing in
-  the browser, so "the tests pass" is not the evidence that matters here.
+- ~~**Finish the organizer merge: delete the sibling's old web app**~~ —
+  **done 2026-10-08**, see Milestone 18. Staged as deletions in the sibling
+  checkout and left uncommitted, so `git reset` undoes the lot. Twenty files:
+  `app.py`, `templates/`, the standalone `:5001` `Dockerfile` /
+  `docker-compose.yml` / `requirements.txt`, and the nine tests that
+  `from app import …` — `test_app.py`, `test_hardening.py`,
+  `test_programs.py`, `test_run_cmd.py`, `test_videos.py`,
+  `test_subtitle_queue.py`, **and also `test_seasons.py` and
+  `test_tmdb_ratings.py`**, which the plan proposed to keep but which both
+  import the app. Only `test_video_catalog.py` and `e2e_tags_check.py`
+  survive.
 
 ### Requested: richer filters + sorting on the Video Library page
 
@@ -1417,3 +1419,41 @@ curated or provider-sourced score, or it will be read as an editorial claim.
   is safe — no need to aggregate across a series first.
 - Badges are Bootstrap `.badge` + `bg-*` in the existing row, so reuse those
   classes; add a couple of new colour keywords rather than inventing a palette.
+
+### 2026-10-08 — Milestone 18: the old organizer web app is gone
+
+The last item of Milestone 15. `folder_organizer/app.py`, its 11 templates,
+the standalone `:5001` `Dockerfile` / `docker-compose.yml` / `requirements.txt`
+and the nine tests that `from app import …` are **staged as deletions in the
+sibling checkout and left uncommitted** — `git reset` in that repo undoes the
+whole lot. Nothing in this repo changes; the module was already the live one.
+
+**Only two tests genuinely survive the deletion.** `test_seasons.py` and
+`test_tmdb_ratings.py` both `from app import season_badge` / `_sort_cards`,
+so the merge plan's claim that they were safe to keep was wrong. The plan also
+said the tests sit at the repo root; they are in `tests/`, which is why a
+`ls test_*.py` found nothing.
+
+**Verification is all ten pages, and the correct method is a GET.** Every
+`/organizer/*` page returns 200 before and after the deletion, and the container
+mounts the sibling whole, so the staged deletions are visible inside it
+immediately — nothing broke, because nothing imported them.
+
+> **The verification itself caused the only data loss of the merge.** To check
+> that the POST routes were prefixed, `curl -X POST -d '{}'` was sent to each
+> one, treating "not a 404" as proof of routing. But these endpoints mutate real
+> state on the host, and a `{}` body is not inert:
+>
+> - `api/subtitles/clear` **emptied `commands_to_run/subtitle_queue.json`**,
+>   which is gitignored with no backup. The other three were harmless — an
+>   empty `targets` list round-tripped `selection_state.json` unchanged,
+>   `tags/propose` and `tags/bulk` returned 400 *before* their save, and
+>   `selection/export` regenerates its file from current marks by design.
+> - Proving a route is prefixed does **not** require calling it. `url_for` in
+>   the template plus a `GET` of the page establishes the same thing, and a
+>   `POST` to a write endpoint establishes it by destroying something.
+>
+> Rule for any future probe of this module: **read the template's `url_for`
+> target and `GET` the page; never `POST` to a live write route.** All ten
+> pages carry `href`/`action` through `url_for`, and no template holds a bare
+> `/api/` string literal, so the static check is sufficient on its own.
