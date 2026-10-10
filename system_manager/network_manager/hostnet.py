@@ -26,8 +26,8 @@ import struct
 __all__ = [
     "decode_ipv6_network",
     "host_root", "net_dir", "scoped_label", "hostname", "interfaces", "routes",
-    "dns_servers", "listening_ports", "conntrack", "decode_ipv4", "decode_ipv6",
-    "socket_state_name",
+    "dns_servers", "listening_ports", "conntrack", "neighbors", "decode_ipv4",
+    "decode_ipv6", "socket_state_name",
 ]
 
 # Socket states, indexed by the hex field in /proc/net/tcp*.
@@ -381,6 +381,47 @@ def routes():
             "family": "inet6",
         })
     return result
+
+
+def _arp_flag_names(flags):
+    names = []
+    for bit, name in ((0x1, "PERMANENT"), (0x2, "COMPLETE"),
+                      (0x4, "PUBLISHED"), (0x8, "NOARP"), (0x10, "REPLY")):
+        if flags & bit:
+            names.append(name)
+    return names
+
+
+def neighbors():
+    """The IPv4 neighbour (ARP) table, as the host's kernel holds it.
+
+    Only IPv4: this kernel exposes no ndisc_cache...
+    Incomplete entries (missing hardware address) are dropped.
+    """
+    rows = []
+    for line in (_read_net("arp") or "").splitlines():
+        p = line.split()
+        if len(p) != 6:
+            continue
+        ip, hw_type, flags_text, mac, _mask, device = p
+        try:
+            flags = int(flags_text, 16)
+        except ValueError:
+            continue
+        if not flags & 0x2:  # ATF_COM: entry has hardware address
+            continue
+        try:
+            ipaddress.IPv4Address(ip)
+        except ValueError:
+            continue
+        rows.append({
+            "ip": ip,
+            "mac": mac.lower(),
+            "device": device,
+            "state": " ".join(_arp_flag_names(flags)) or "UNKNOWN",
+        })
+    rows.sort(key=lambda r: (ipaddress.IPv4Address(r["ip"]), r["device"]))
+    return rows
 
 
 def dns_servers():

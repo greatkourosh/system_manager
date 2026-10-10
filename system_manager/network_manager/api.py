@@ -49,6 +49,11 @@ def conntrack():
     return jsonify(hostnet.conntrack())
 
 
+@network_bp.route("/neighbors")
+def neighbors():
+    return jsonify(hostnet.neighbors())
+
+
 @network_bp.route("/")
 def index():
     """Network overview page."""

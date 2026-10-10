@@ -48,6 +48,17 @@
 </section>
 
 <section>
+  <h2>Neighbors (ARP)</h2>
+  <p class="muted">IPv4 neighbours the host has resolved. IPv6 neighbours are not listed: this kernel exposes no NDP table.</p>
+  <div class="pkg-table-wrap">
+    <table class="pkg-table">
+      <thead><tr><th>IP</th><th>MAC</th><th>Device</th><th>State</th></tr></thead>
+      <tbody id="neighbors"></tbody>
+    </table>
+  </div>
+</section>
+
+<section>
   <h2>Connections</h2>
   <p class="muted">The kernel's connection-tracking table, when the host exposes one.</p>
   <div class="pkg-table-wrap">
@@ -75,8 +86,8 @@ function fill(sel, rows, cols) {
     rows.length ? rows.map(cells => '<tr>' + cells.map(text).join('') + '</tr>').join('')
                 : '<tr><td colspan="' + (cols || 9) + '" class="muted">None.</td></tr>';
 }
-Promise.all([get('/summary'), get('/interfaces'), get('/routes'), get('/dns'), get('/ports'), get('/conntrack')])
-  .then(([sum, ifs, rts, dns, ports, ct]) => {
+Promise.all([get('/summary'), get('/interfaces'), get('/routes'), get('/dns'), get('/ports'), get('/conntrack'), get('/neighbors')])
+  .then(([sum, ifs, rts, dns, ports, ct, nbrs]) => {
     document.getElementById('summary').innerHTML =
       '<p class="muted"><strong>' + sum.hostname.hostname + '</strong> &mdash; ' +
       sum.interfaces + ' interfaces, ' + sum.routes + ' routes, ' +
@@ -100,6 +111,7 @@ Promise.all([get('/summary'), get('/interfaces'), get('/routes'), get('/dns'), g
       ? 'PID is unknown for ' + orphans + ' of ' + ports.length +
         ' sockets: their processes run as another user, whose file descriptors are not readable.'
       : '';
+    fill('#neighbors', nbrs.map(n => [n.ip, n.mac, n.device, n.state]), 4);
     fill('#ct', ct.slice(0, 200).map(c => [c.proto, c.state, c.src_ip + ':' + c.src_port, c.dst_ip + ':' + c.dst_port]), 4);
     if (ct.length > 200) document.getElementById('ct-note').textContent = 'Showing the first 200 of ' + ct.length + ' tracked connections.';
     else if (!ct.length) document.getElementById('ct-note').textContent = 'This kernel exposes no conntrack table, so there is nothing to list.';

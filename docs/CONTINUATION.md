@@ -654,11 +654,11 @@ Packages module (mounted at `/packages`): `GET /packages/` — the upgradable se
 Full endpoint specs in API.md.
 
 Network module (mounted at `/network`): `GET /network/` — the HTML page — plus
-`GET /network/{summary,interfaces,routes,dns,ports,conntrack}` for the JSON the
-page fills itself from. Read-only, and it changes no network state. It reports
-the **host's** network, parsed from `/host/proc/1/net/*` rather than shelled out
-to `ip`/`ss`, which would report the container's own stack. `summary` carries a
-`source` field naming which stack that is.
+`GET /network/{summary,interfaces,routes,dns,ports,neighbors,conntrack}` for the
+JSON the page fills itself from. Read-only, and it changes no network state. It
+reports the **host's** network, parsed from `/host/proc/1/net/*` rather than
+shelled out to `ip`/`ss`, which would report the container's own stack. `summary`
+carries a `source` field naming which stack that is.
 
 ### Approval Flow
 1. `POST /api/approve` `{action_type, parameters}` → `approval_token`, `preconditions`, `expires_in`
@@ -699,7 +699,7 @@ docker compose exec system-manager cat /data/access-code
 cd tests && PYTHONPATH=<repo root> \
   uv run --python 3.14 --with flask==3.0.3 --with gunicorn==22.0.0 \
   --no-project python -m unittest discover
-# 224 tests, ~4s, all passing — on Python 3.12 or newer.
+# 230 tests, ~4s, all passing — on Python 3.12 or newer.
 ```
 
 ---
@@ -758,7 +758,11 @@ SSH-based agent enrollment (authorized keys); central dashboard for multiple aut
 SMART disk monitoring (smartctl); CPU/GPU temps (lm-sensors, nvidia-smi); battery health (upower); fan speeds, power consumption.
 
 ### 7. Network Topology & Scanning
-ARP/NDP neighbor table; passive service discovery (mDNS, SSDP); network map visualization (D3/cytoscape).
+~~ARP neighbour table~~ — **done 2026-10-08**, see Milestone 21. `/network/`
+lists the host's IPv4 neighbour cache read from `/host/proc/1/net/arp`.
+**Still open:** passive service discovery (mDNS, SSDP); network map
+visualization (D3/cytoscape). NDP is unavailable on this kernel — there is no
+`ndisc_cache` — and the page says so rather than showing a blank table.
 
 ### 8. Complete the Flask Port
 - ~~Wire connectivity diagnostics into the Flask dashboard~~ — done, see Milestone 5
@@ -787,7 +791,11 @@ written; `scripts/` does not exist in this project.
 ## Git Status
 
 Clean through `eeb2db8` ("docs: Milestone 20, and the substring bug behind
-it"). Milestone 15 (the organizer as a real blueprint) is `4f5f00b`. The sibling
+it"). **Uncommitted:** 8 files, +191/-16 — the ARP neighbour table
+(`hostnet.neighbors()`, `/network/neighbors`, the page's Neighbors section and
+its six tests), the Milestone 21 fix that lets it survive a missing host mount,
+and the documentation for both. Milestone 15 (the organizer as a real blueprint)
+is `4f5f00b`. The sibling
 checkout is clean through `35c6f62`: `fa55804` dropped 23 dead
 `video_library*.json` variants, `ee169fb` added the Oct 1–5 host tooling
 (`media_path` reuse, `gone` status, `.bak`, genre-needle sync), and `35c6f62`
@@ -795,7 +803,7 @@ made the scanner emit every episode in `videos[]` instead of one sample;
 Milestone 5 completed in `d1ac423`. The 2026-09-26 verification pass
 (Milestone 6) was documentation-only. A later pass on the same day fixed four
 container/host bugs — see the Milestone 7 entry, and Milestone 9 below.
-**224 tests pass, 0 failures** (2026-10-08).
+**230 tests pass, 0 failures** (2026-10-08).
 
 The sibling checkout (`../folder_organizer`) is clean through `35c6f62`. It
 spent the whole of Milestone 18 and 19's aftermath with 27 files uncommitted —
@@ -1009,6 +1017,12 @@ port-4000 proxy.
   because procfs resolves the `net` symlink against the *reader's* pid
   namespace. Verified against `ip` and `ss` on the live host.
 - ~~Decide: retire `server.py`'s standalone panel~~ — done, see the retirement note above
+- ~~Add the ARP neighbour table to `/network/` (Future Work #7, first item)~~ —
+  **done 2026-10-08**, see Milestone 21. Reads `/host/proc/1/net/arp`. Rows are
+  sorted numerically and unresolved entries are dropped; IPv6 stays unlisted
+  because this kernel exposes no `ndisc_cache`, and the page says so. The
+  remaining half of #7 — passive service discovery (mDNS, SSDP) and a network
+  map — is still open.
 - ~~Per-card subtitle fetch~~ — **done 2026-09-27**, `8057d7a` + `c5e40d5` in
   `folder_organizer`. The ＋sub button only *enqueues* into
   `commands_to_run/subtitle_queue.json`; `subtitle_runner.py` drains it on the
@@ -1599,3 +1613,45 @@ since the scan. Nothing to fix — the fetcher skips them.
 Sibling commits: `fa55804` (Milestone 18's deletions), `ee169fb` (the
 `media_path`/`gone`/genre-needle work that was sitting uncommitted), `35c6f62`
 (this one). **224 tests pass here, 9 in the sibling.**
+
+### 2026-10-08 — Milestone 21: the neighbour table raised on an unmounted host
+
+The first item under Future Work #7 was an ARP neighbour table. It was written
+and passed its own tests, and was still wrong for the case the rest of this repo
+is careful about: **a host with no `/host` mounts.**
+
+`neighbors()` opened `os.path.join(net_dir(), "arp")`. Every other collector goes
+through `_read_net()`, which returns `""` for both a missing file and a missing
+`net_dir()`. This one went around it, so `net_dir() -> None` produced
+`os.path.join(None, ...)` → `TypeError: expected str, bytes or os.PathLike
+object, not NoneType` — a 500, not an empty list. The page fetches all seven
+endpoints in one `Promise.all`, so **one missing mount would have blanked the
+entire Network page**: interfaces, routes, DNS, ports and conntrack included.
+That is Milestone 16's failure class in a new place.
+
+The fix was deletion, not a guard: replace the open/readlines block with the
+existing `_read_net("arp") or ""`, which already encodes the missing-file case.
+
+> Rule: a collector that reads procfs has exactly two failure shapes — no file,
+> no directory. Anything that bypasses `_read_net()` re-implements both of them
+> and gets one wrong.
+
+The test that should have caught it existed and simply had not been extended:
+`test_missing_mounts_are_reported_not_guessed` lists every collector and now
+includes `neighbors`. Confirmed **red** against the pre-fix form
+(`TypeError` out of the collector) and green after, rather than assumed either
+way.
+
+Verified against this machine's real neighbour cache, not only fixtures:
+**21 entries** parsed from `/proc/net/arp`, every MAC a well-formed unicast
+address with the multicast bit clear, sorted numerically rather than as text.
+The displayed `ea (1):` line-wrap in the ARP file is an artefact of the tool
+rendering the output — the parser reads whole entries, which the 21 correct MACs
+confirm.
+
+IPv6 neighbours remain unlisted: this kernel exposes no `ndisc_cache`, and the
+page says so rather than rendering an empty table that reads like missing data.
+That half of #7 stays open, as does passive service discovery (mDNS, SSDP) and
+the network map.
+
+**230 tests pass, 0 failures** (224 + 6).

@@ -92,6 +92,15 @@ options edns0
 search .
 """
 
+# Column-aligned, as the kernel writes it. The 0x0 row is an entry the host has
+# started to resolve but not finished: it is dropped, because a neighbour with
+# no hardware address cannot be acted on and is not what "neighbour" means.
+ARP = """IP address       HW type     Flags       HW address            Mask     Device
+192.168.1.1      0x1         0x2         aa:bb:cc:dd:ee:ff     *        eno1
+192.168.1.130    0x1         0x2         11:22:33:44:55:66     *        wlan0
+192.168.1.200    0x1         0x0         00:00:00:00:00:00     *        eno1
+"""
+
 
 class FakeHost:
     """A HOST_ROOT tree holding procfs fixtures, torn down afterwards."""
@@ -335,6 +344,7 @@ class ScopeTests(unittest.TestCase):
             self.assertEqual(hostnet.interfaces(), [])
             self.assertEqual(hostnet.routes(), [])
             self.assertEqual(hostnet.listening_ports(), [])
+            self.assertEqual(hostnet.neighbors(), [])
             self.assertEqual(hostnet.dns_servers(), [])
         finally:
             if previous is None:
@@ -391,6 +401,40 @@ class DnsTests(unittest.TestCase):
             self.assertEqual(hostnet.dns_servers(), ["127.0.0.1", "8.8.8.8"])
 
 
+class NeighborTests(unittest.TestCase):
+    def test_complete_entries_become_rows(self):
+        with FakeHost(arp=ARP):
+            rows = hostnet.neighbors()
+        self.assertEqual(
+            [(r["ip"], r["mac"], r["device"], r["state"]) for r in rows],
+            [("192.168.1.1", "aa:bb:cc:dd:ee:ff", "eno1", "COMPLETE"),
+             ("192.168.1.130", "11:22:33:44:55:66", "wlan0", "COMPLETE")],
+        )
+
+    def test_an_unresolved_entry_is_dropped(self):
+        """Flag 0x0 has no hardware address; listing it would imply a neighbour that isn't there."""
+        with FakeHost(arp=ARP):
+            rows = hostnet.neighbors()
+        self.assertNotIn("192.168.1.200", [r["ip"] for r in rows])
+
+    def test_rows_sort_numerically_not_as_text(self):
+        with FakeHost(arp="IP address HW type Flags HW address Mask Device\n"
+                          "192.168.1.9 0x1 0x2 aa:bb:cc:dd:ee:01 * eno1\n"
+                          "192.168.1.10 0x1 0x2 aa:bb:cc:dd:ee:02 * eno1\n"):
+            self.assertEqual([r["ip"] for r in hostnet.neighbors()],
+                             ["192.168.1.9", "192.168.1.10"])
+
+    def test_a_missing_arp_file_is_empty_not_an_error(self):
+        """The container's netns may have no ARP file at all; [] keeps the page working."""
+        with FakeHost():
+            self.assertEqual(hostnet.neighbors(), [])
+
+    def test_the_header_row_is_not_data(self):
+        with FakeHost(arp=ARP):
+            for row in hostnet.neighbors():
+                self.assertNotIn("HW", row["mac"])
+
+
 class NetworkPageTests(unittest.TestCase):
     def setUp(self):
         self.app = make_app()
@@ -427,7 +471,7 @@ class NetworkPageTests(unittest.TestCase):
 
     def test_row_ids_sit_on_the_tbody_the_script_writes_to(self):
         page = self.client.get("/network/").get_data(as_text=True)
-        for table_id in ("ifaces", "routes", "ports", "ct"):
+        for table_id in ("ifaces", "routes", "ports", "neighbors", "ct"):
             self.assertIn(f'<tbody id="{table_id}">', page)
         # "#<id> tbody" would silently resolve to nothing: the id *is* the tbody.
         self.assertNotIn(" tbody'", page)
@@ -483,12 +527,18 @@ class NetworkApiTests(unittest.TestCase):
     def test_dns_is_an_object_with_servers(self):
         self.assertIsInstance(self._get("dns")["servers"], list)
 
+    def test_neighbors_have_the_keys_the_page_reads(self):
+        for row in self._get("neighbors"):
+            for key in ("ip", "mac", "device", "state"):
+                self.assertIn(key, row)
+
     def test_api_requires_a_session_when_auth_is_on(self):
         directory = tempfile.mkdtemp(prefix="sm-network-auth-")
         app = create_app({"DISABLE_AUTH": 0, "TESTING": True,
                           "AUDIT_PATH": os.path.join(directory, "actions.db")})
         client = app.test_client()
-        for name in ("summary", "interfaces", "routes", "dns", "ports", "conntrack", ""):
+        for name in ("summary", "interfaces", "routes", "dns", "ports", "conntrack",
+                     "neighbors", ""):
             self.assertNotEqual(client.get(f"/network/{name}").status_code, 200,
                                 f"/network/{name} served without a session")
 

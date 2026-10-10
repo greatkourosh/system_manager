@@ -451,9 +451,9 @@ otherwise be indistinguishable from a quiet host.
 
 ### `GET /network/`
 **Auth required.** The network page, as HTML — a summary line plus interfaces,
-routes, DNS servers, listening ports and conntrack, each filled by the
-accompanying JSON endpoints below. Like `/packages/` and `/logs/`, it takes no
-query parameters and changes nothing.
+routes, DNS servers, listening ports, the IPv4 neighbour table and conntrack,
+each filled by the accompanying JSON endpoints below. Like `/packages/` and
+`/logs/`, it takes no query parameters and changes nothing.
 
 ### `GET /network/summary`
 **Auth required.** Counts for the summary line.
@@ -531,6 +531,27 @@ as missing data.
 ```
 Ports in this table are hex, and are decoded. Empty when the kernel exposes no
 `/proc/net/nf_conntrack`; the page says so rather than showing a blank table.
+
+### `GET /network/neighbors`
+**Auth required.** The IPv4 neighbour (ARP) cache, from `/proc/{1,}/net/arp`.
+```json
+[{"ip": "192.168.1.1", "mac": "d8:44:89:c8:ad:7a",
+  "device": "eno1", "state": "COMPLETE"}]
+```
+Sorted numerically by address, not as text, so `192.168.1.9` precedes
+`192.168.1.10`. `state` is the decoded flag word: `PERMANENT`, `COMPLETE`,
+`PUBLISHED`, `NOARP`, `REPLY`.
+
+Entries still being resolved are **dropped**, not shown with a blank MAC. Flag
+`0x2` (`ATF_COM`) means the kernel has a hardware address, and a neighbour
+without one cannot be acted on — listing it would imply a neighbour that is not
+there.
+
+**IPv6 neighbours are not included.** This kernel exposes no `ndisc_cache`, and
+the page says so rather than rendering an empty table. Empty array when the host
+has no `arp` file or no `/host` mount at all — every procfs collector returns an
+empty list rather than failing, because the page fetches all seven endpoints in
+one `Promise.all` and one failure would blank the whole page.
 
 > **Where the data comes from.** Every collector parses procfs through
 > `network_manager/hostnet.py`, never `ip` or `ss`. Under the shipped compose
