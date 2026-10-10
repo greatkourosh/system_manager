@@ -1,0 +1,7 @@
+data/
+logs/
+docs/
+.env
+__pycache__/
+*.pyc
+commands_to_run/

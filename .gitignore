@@ -37,3 +37,17 @@ Thumbs.db
 
 #Ignore vscode AI rules
 .github/instructions/codacy.instructions.md
+
+# Organizer runtime state: scan output, proposals and the subtitle queue are local, not source
+commands_to_run/by_type/
+commands_to_run/delete_list_*.txt
+commands_to_run/files_to_delete_*.txt
+commands_to_run/review_groups_reference.txt
+commands_to_run/tag_fix_list.json
+commands_to_run/tag_log.txt
+commands_to_run/folder_fix_list.json
+commands_to_run/folder_fix_log.txt
+commands_to_run/subtitle_log.txt
+commands_to_run/subtitle_queue.json
+commands_to_run/subtitle_queue_log.jsonl
+commands_to_run/delete_log.txt

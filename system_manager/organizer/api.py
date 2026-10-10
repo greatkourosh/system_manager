@@ -20,17 +20,11 @@ from flask import Blueprint, Response, jsonify, render_template, request
 
 from . import subtitle_queue
 
-# Where the pre-generated JSON lives. Four levels up from this file lands on the
-# directory that holds this repo, so the sibling checkout resolves in both
-# layouts: on the host that is projects/folder_organizer, and in the container it
-# is the /folder_organizer mount at the same depth. The host-side scripts are
-# what write this data; the routes only read it, except for the tag and
-# folder-fix proposals written back for the host to apply.
-DATA = os.environ.get(
-    "ORGANIZER_DATA_DIR",
-    os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
-        os.path.dirname(os.path.abspath(__file__))))), "folder_organizer", "data"),
-)
+# Where the pre-generated JSON lives: the repo's data/ directory. The host-side
+# scripts write it; the routes only read it, except for the tag and folder-fix
+# proposals written back for the host to apply.
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+DATA = os.environ.get("ORGANIZER_DATA_DIR", os.path.join(REPO_ROOT, "data"))
 
 # Genres are scraped out of folder names, so the same genre arrives in several
 # spellings: "Sci-fi" and "Sci-Fi" for one entry, and compound runs that were
@@ -664,19 +658,16 @@ SELECTION_FILE = os.path.join(DATA, "selection_state.json")
 SKIP_RULES_FILE = os.path.join(DATA, "skip_rules.json")
 # Where the tag/folder-fix lists are written. Writable, unlike DATA: these are
 # the proposals the user reviews here and then applies host-side.
-CMD_DIR = os.environ.get("ORGANIZER_CMD_DIR",
-                         os.path.join(os.path.dirname(DATA), "commands_to_run"))
+CMD_DIR = os.environ.get("ORGANIZER_CMD_DIR", os.path.join(REPO_ROOT, "commands_to_run"))
 TAG_PLAN_FILE = os.path.join(DATA, "tag_plan.json")
 TAG_FIX_LIST = os.path.join(CMD_DIR, "tag_fix_list.json")
 MB_CAND_FILE = os.path.join(DATA, "mb_candidates.json")
 TAG_PAGE_SIZE = 50
 
 # The dry/apply commands are pasted into a shell on the *host*, not run in this
-# container. This app is bind-mounted from the sibling checkout, so BASE here
-# (/folder_organizer) is not a path that exists on the host and must not be used
-# to build them. Override only if the checkout lives somewhere else.
+# container, so they need the host path of the repo, not the container's /app.
 HOST_ORG_ROOT = os.environ.get("HOST_ORG_ROOT",
-                               "/media/kourosh/DEVNVME/projects/folder_organizer")
+                               "/media/kourosh/DEVNVME/projects/system_manager")
 
 
 def run_cmd(script, *args):

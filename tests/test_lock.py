@@ -54,7 +54,7 @@ class LockedModuleTests(unittest.TestCase):
         self.assertEqual(response.status_code, 401)
         self.assertIn("error", response.get_json())
 
-    @unittest.skipUnless(organizer_available(), "folder_organizer checkout not present")
+    @unittest.skipUnless(organizer_available(), "organizer data directory not present")
     def test_organizer_redirects_when_locked(self):
         self.assertEqual(self.client.get("/organizer/").status_code, 302)
 
@@ -82,7 +82,7 @@ class UnlockedModuleTests(unittest.TestCase):
         self.assertEqual(listed.status_code, 200)
         self.assertEqual(listed.get_json()["total"], 1)
 
-    @unittest.skipUnless(organizer_available(), "folder_organizer checkout not present")
+    @unittest.skipUnless(organizer_available(), "organizer data directory not present")
     def test_organizer_is_reachable_after_login(self):
         self.assertIn(self.client.get("/organizer/").status_code, (200, 303, 307))
 

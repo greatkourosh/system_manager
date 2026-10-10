@@ -16,13 +16,9 @@ import json
 import os
 from datetime import date, datetime
 
-# The queue has to be the very file subtitle_runner.py drains on the host, so it
-# resolves to the bind-mounted checkout rather than to this package. Four levels
-# up lands on the directory holding this repo, then the sibling checkout by the
-# same name the container mounts at /folder_organizer. Mirrors DATA in api.py.
-CHECKOUT = os.path.dirname(os.path.dirname(os.path.dirname(
-    os.path.dirname(os.path.abspath(__file__)))))
-BASE = os.path.join(CHECKOUT, "folder_organizer")
+# The queue must be the file subtitle_runner.py drains on the host, so it lives
+# at the repo root. Mirrors DATA in api.py.
+BASE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 QUEUE = os.path.join(BASE, "commands_to_run", "subtitle_queue.json")
 LOG = os.path.join(BASE, "commands_to_run", "subtitle_queue_log.jsonl")
 

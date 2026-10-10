@@ -1,0 +1,40 @@
+{
+  "music": {
+    "folder": "Year - Album",
+    "scope": "Music/<Artist>/<album>",
+    "root_markers": ["music"],
+    "file": "NN - Title.ext",
+    "clean": ["site_tag", "dots", "underscore", "double_space", "embedded_artist", "year_separator"]
+  },
+  "videos": {
+    "folder": "Year - Title - Genres rating pop | Title Sxx of yy - Genres rating pop",
+    "scope": "Movies|Serials|Videos/<folder>",
+    "root_markers": ["movies", "serials", "videos"],
+    "clean": ["site_tag", "dots", "underscore", "double_space", "year_separator", "bracket_tags", "en_dash"]
+  },
+  "learning": {
+    "folder": "Course Title (Year)",
+    "scope": "Learning/<Topic>/<course>",
+    "root_markers": ["learning"],
+    "clean": ["site_tag", "bracket_tags", "en_dash", "underscore", "double_space", "trailing_dates"]
+  },
+  "programs": {
+    "folder": "Name vVersion",
+    "scope": "Programs/<Category>/<name>",
+    "root_markers": ["programs"],
+    "clean": ["site_tag", "dots_only_if_dir", "underscore", "double_space", "en_dash"]
+  },
+  "pictures": {
+    "folder": "YYYY - Event",
+    "scope": "Pictures/<group>/<event>",
+    "root_markers": ["pictures"],
+    "clean": ["underscore", "double_space", "amp_spacing", "year_separator"]
+  },
+  "documents": {
+    "folder": null,
+    "light_only": true,
+    "scope": "Documents/Desktop/Workplace personal folders",
+    "root_markers": ["documents", "desktop", "downloads", "workplace", "kourosh"],
+    "clean": ["site_tag", "underscore", "double_space"]
+  }
+}

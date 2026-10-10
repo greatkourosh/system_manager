@@ -32,7 +32,7 @@ each time you need to log in. `/health` is the only unauthenticated endpoint.
 | Category | Capabilities |
 |----------|--------------|
 | **System Observation** | CPU, memory, disk, uptime, kernel, hardware identity |
-| **Network** | Interfaces, addresses, routes, DNS servers, listening ports, conntrack |
+| **Network** | Interfaces, addresses, routes, DNS servers, listening ports, neighbours, conntrack |
 | **Connectivity** | Gateway reachability, DNS resolution, TLS endpoint test (opt-in) |
 | **Notifications** | Desktop alert when a new condition appears (low memory/disk, no default route, waiting updates, stale apt indexes) |
 | **Actions** | Restart/start user services, activate NetworkManager profiles (VPN, Wi-Fi, ethernet) |
@@ -46,15 +46,15 @@ each time you need to log in. `/health` is the only unauthenticated endpoint.
   - `auth` — access-code auth + approved actions + SQLite audit
   - `connectivity` — opt-in gateway → DNS → HTTPS diagnostics (reuses `server.py` probes)
   - `notifier` — background thread that announces each newly-appearing condition once via `notify-send`
-  - `organizer` — media organizer blueprint under `/organizer`; reads its JSON from the bind-mounted `../folder_organizer`
+  - `organizer` — media organizer blueprint under `/organizer`; reads its JSON from `./data`; host-side scripts live at the repo root
   - `inventory` — hardware inventory (SQLite store, CRUD + export)
   - `packages` — the host's upgradable apt set, read-only; renders the commands, runs none
   - `journal` — journal search by priority, unit and time, read-only via `journalctl --root`
-  - `network_manager` — the **host's** interfaces, routes, DNS, listening ports and conntrack, parsed from `/host/proc/1/net/*`; read-only under `/network`, and the page names the stack it read
+  - `network_manager` — the **host's** interfaces, routes, DNS, listening ports, neighbours and conntrack, parsed from `/host/proc/1/net/*`; read-only under `/network`, and the page names the stack it read
 - **Templates/static** under `templates/`, `static/` (Jinja, vanilla JS/CSS)
 - **Collector library** (`server.py`, stdlib-only, no HTTP layer) — imported by `system_manager/` for its collectors, connectivity probes and action primitives. Its standalone panel was retired 2026-09-26.
 - **Containerized** with host mounts for `/proc`, `/sys`, `/etc`, dbus, and (read-only) the host's dpkg database and apt indexes
-- **224 unit/integration tests** (`tests/test_server.py`, `tests/test_flask_app.py`, `tests/test_connectivity.py`, `tests/test_inventory.py`, `tests/test_lock.py`, `tests/test_packages.py`, `tests/test_notifier.py`, `tests/test_journal.py`, `tests/test_thresholds.py`, `tests/test_tag_detect.py`, `tests/test_network.py`), all passing, plus 9 more in the sibling `../folder_organizer` checkout. Run them on **Python 3.12+** — see `ARCHITECTURE.md` for why 3.11 fails 8 of them.
+- **230 unit/integration tests** (`tests/test_server.py`, `tests/test_flask_app.py`, `tests/test_connectivity.py`, `tests/test_inventory.py`, `tests/test_lock.py`, `tests/test_packages.py`, `tests/test_notifier.py`, `tests/test_journal.py`, `tests/test_thresholds.py`, `tests/test_tag_detect.py`, `tests/test_network.py`), all passing. Run them on **Python 3.12+** — see `ARCHITECTURE.md` for why 3.11 fails 8 of them.
 
 ## Documentation
 

@@ -63,7 +63,7 @@ running on an isolated network.
 | `/var/run/dbus` | `/var/run/dbus` | ro | Yes (NM, systemd) — see the note below |
 | `/sys/class/dmi` | `/sys/class/dmi` | ro | Yes (hardware IDs) |
 | `./data` | `/data` | rw | Yes (access code, audit + inventory DBs) |
-| `../folder_organizer` | `/folder_organizer` | rw | Folder Organizer module: `data/` is read, `commands_to_run/` is written |
+| `./commands_to_run` | `/app/commands_to_run` | rw | Folder Organizer proposals, written by the app and applied by host-side scripts |
 
 ### Capabilities
 | Capability | Purpose |
