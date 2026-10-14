@@ -5,7 +5,7 @@ Flask app in Docker, http://localhost:5001 (5000 is taken by project-dashboard).
 
 Pages:
 - `/` Dashboard — totals per drive/category
-- `/scan` — raw duplicates list
+- `/scan` — raw duplicates list. Per-copy **Skip** and per-set **Skip all** write folder+extension skip rules (same as `/select`); sets left with fewer than two unskipped copies are hidden.
 - `/cleanup` — read-only safe/review proposal view
 - `/select` — **the main workflow**: interactive duplicate selector
 - `/music`, `/music/tags` — catalog + tag audit

@@ -129,9 +129,15 @@ def scan_page():
     summary = load("scan_summary.json")
     dups = load("duplicates.json") or {"groups": []}
     query = request.args.get("q", "").strip().lower()
-    groups = dups.get("groups", [])
-    if query:
-        groups = [g for g in groups if any(query in p.lower() for p in g["copies"])]
+    rules = load_skip_rules()
+    groups = []
+    for g in dups.get("groups", []):
+        if query and not any(query in p.lower() for p in g["copies"]):
+            continue
+        copies = [{"path": p, "skipped": is_skipped(p, os.path.splitext(p)[1], rules)} for p in g["copies"]]
+        if sum(not c["skipped"] for c in copies) < 2:
+            continue
+        groups.append({**g, "copies": copies})
     return render_template("organizer/scan.html", s=summary, dups={"groups": groups[:200], "total": dups.get("total_groups", 0), "redundant": dups.get("total_redundant_bytes", 0)}, q=query)
 
 

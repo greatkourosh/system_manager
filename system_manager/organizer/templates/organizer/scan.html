@@ -2,7 +2,7 @@
 {% block title %}Scan & Duplicates{% endblock %}
 {% block content %}
 <h4 class="mb-3">Scan &amp; Duplicates</h4>
-<p class="text-muted">{{ dups.total }} duplicate groups · {{ dups.redundant|gb }} redundant. Nothing is deleted automatically — review here, then confirm in chat.</p>
+<p class="text-muted">{{ dups.total }} duplicate groups · {{ dups.redundant|gb }} redundant. Nothing is deleted automatically — review here, then confirm in chat. Skipped copies are hidden from this list and from deletion lists; manage them on the <a href="{{ url_for('organizer.organizer_api.skipped_page') }}">Skipped Folders</a> page.</p>
 
 <form class="row g-2 mb-3" method="get">
   <div class="col-md-6"><input class="form-control" name="q" value="{{ q }}" placeholder="Filter duplicate paths…"></div>
@@ -20,8 +20,14 @@
       <td>{{ g.copies|length }}</td>
       <td class="text-danger">{{ g.redundant_bytes|fmt_size }}</td>
       <td>
-        {% for p in g.copies %}
-          <div class="path-cell {% if loop.first %}text-success{% else %}text-muted{% endif %}" title="{{ p }}">{{ p }}</div>
+        <button class="btn btn-sm btn-outline-danger py-0 px-1 mb-1" data-paths='{{ g.copies|rejectattr("skipped")|map(attribute="path")|list|tojson }}' onclick="skipGroup(this)" title="Skip every copy in this set">Skip all</button>
+        {% for c in g.copies %}
+          <div class="d-flex align-items-center gap-2">
+            {% if not c.skipped %}
+            <button class="btn btn-sm btn-outline-secondary py-0 px-1" data-path="{{ c.path }}" onclick="skipCopy(this)" title="Skip this file type in this folder">Skip</button>
+            {% endif %}
+            <div class="path-cell flex-grow-1 {% if c.skipped %}text-decoration-line-through text-muted{% elif loop.first %}text-success{% else %}text-muted{% endif %}" title="{{ c.path }}">{{ c.path }}</div>
+          </div>
         {% endfor %}
       </td>
     </tr>
@@ -29,4 +35,30 @@
   </tbody>
 </table>
 </div>
+
+<script>
+async function addSkipRule(path) {
+  const sep = path.includes('\\') && !path.includes('/') ? '\\' : '/';
+  const i = path.lastIndexOf(sep);
+  const folder = path.slice(0, i);
+  const dot = path.lastIndexOf('.');
+  const ext = dot > i ? path.slice(dot).toLowerCase() : '';
+  const r = await fetch(U['api/skip-rules'], {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({folder: folder, ext: ext})});
+  const j = await r.json();
+  if (!j.ok) throw new Error(j.error);
+}
+
+async function skipCopy(btn) {
+  try { await addSkipRule(btn.dataset.path); } catch (e) { alert('Failed: ' + e.message); return; }
+  location.reload();
+}
+
+async function skipGroup(btn) {
+  try {
+    for (const p of JSON.parse(btn.dataset.paths)) await addSkipRule(p);
+  } catch (e) { alert('Failed: ' + e.message); }
+  location.reload();
+}
+</script>
 {% endblock %}
