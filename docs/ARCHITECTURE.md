@@ -183,6 +183,21 @@ session bus rather than on being root; see the actions note in CONTINUATION.md.
   reaching a host-local socket must go via the `/host` mounts instead.
 - `pid: host` — Access to host process namespace (for `--user` systemd)
 
+#### DNS scope
+- Host resolver configuration and upstream DNS are separate layers. A host
+  `/etc/resolv.conf` entry such as `127.0.0.1` can point to a local dnsmasq
+  listener; dnsmasq then forwards global queries according to its `server=`
+  settings and may retain per-domain `server=/domain/...` overrides.
+- A bridge container normally has Docker's embedded resolver
+  (`nameserver 127.0.0.11`). Docker resolves container names internally and
+  forwards external DNS queries to its configured upstream resolver. When the
+  host resolver is `127.0.0.1`, the intended chain is container → Docker DNS →
+  host dnsmasq. Host-network containers use the host resolver directly.
+- NetworkManager's DHCP-provided DNS list is link configuration; it can differ
+  from the resolver path applications actually use. Proxies and applications
+  with their own DNS/DoH configuration can bypass both host and Docker DNS, so
+  diagnose each layer independently.
+
 ## Security Model
 
 ### Threat: Unauthorized Access

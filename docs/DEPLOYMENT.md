@@ -124,6 +124,44 @@ If you switch back to host networking, drop the `ports:` block. Note that under
 host mode `localhost` inside the container is the host, which any code reaching
 a host-local socket depends on — check `HOST_ROOT`/dbus paths still resolve.
 
+### DNS Resolution Paths
+
+Keep the resolver address used by applications separate from the upstream
+servers configured in dnsmasq:
+
+- Host applications using the system resolver read `/etc/resolv.conf`. On the
+  deployment host documented here, it contains `nameserver 127.0.0.1`, and
+  dnsmasq listens on that loopback address.
+- dnsmasq's global upstreams come from `server=` entries in
+  `/etc/dnsmasq.conf` and its included configuration files. `server=/domain/...`
+  entries are per-domain overrides, not global upstreams. At the time this
+  host was checked (2026-10-18), its global upstreams were
+  `78.157.42.100` and `178.22.122.100`; these are host settings, not project
+  defaults.
+- Network Settings can still show DNS servers received by a link from DHCP.
+  That list describes link configuration; it does not by itself establish which
+  resolver a particular application uses. On this host, systemd-resolved's
+  global `~.` route points at `127.0.0.1`, while the `eno1` DHCP list remains
+  visible. Check both `resolvectl status` and `/etc/resolv.conf` when diagnosing.
+- Bridge-network containers normally use Docker's embedded resolver at
+  `127.0.0.11`. Docker answers container/service names itself and forwards
+  external DNS queries to the host resolver it learned from the host's
+  `/etc/resolv.conf`. On this host that resolver is `127.0.0.1`, so external
+  container DNS follows the host dnsmasq path. A container using `network_mode:
+  host` instead sees the host resolver directly.
+- Applications or containers with their own proxy, VPN, or DNS-over-HTTPS
+  settings can use a different path. V2RayN's own DNS rules are independent of
+  dnsmasq; changing host dnsmasq does not rewrite those rules.
+
+Read-only checks:
+```bash
+cat /etc/resolv.conf
+resolvectl status
+grep -E '^[[:space:]]*(no-resolv|server=|conf-dir=|conf-file=)' /etc/dnsmasq.conf
+docker exec system-manager cat /etc/resolv.conf
+dig @127.0.0.1 example.com
+```
+
 ### Restart Policy
 ```yaml
 restart: unless-stopped
