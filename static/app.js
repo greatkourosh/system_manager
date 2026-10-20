@@ -3,19 +3,44 @@
   const fmt = {
     bytes(b) {
       if (b == null) return "—";
-      const u = ["B","KB","MB","GB","TB"]; let i = 0;
-      while (b >= 1024 && i < u.length - 1) { b /= 1024; i++; }
+      const u = ["B", "KB", "MB", "GB", "TB"];
+      let i = 0;
+      while (b >= 1024 && i < u.length - 1) {
+        b /= 1024;
+        i++;
+      }
       return `${b.toFixed(i ? 1 : 0)} ${u[i]}`;
     },
-    pct(n, d) { return (n == null || d == null || d === 0) ? "—" : `${((n/d)*100).toFixed(1)}%`; },
+    pct(n, d) {
+      return n == null || d == null || d === 0 ?
+          "—"
+        : `${((n / d) * 100).toFixed(1)}%`;
+    },
     uptime(s) {
       if (!s) return "—";
-      const d = Math.floor(s/86400), h = Math.floor(s%86400/3600), m = Math.floor(s%3600/60);
+      const d = Math.floor(s / 86400),
+        h = Math.floor((s % 86400) / 3600),
+        m = Math.floor((s % 3600) / 60);
       return `${d}d ${h}h ${m}m`;
     },
-    load(arr) { return Array.isArray(arr) ? arr.map(x => x.toFixed(2)).join(" · ") : "—"; },
+    load(arr) {
+      return Array.isArray(arr) ?
+          arr.map((x) => x.toFixed(2)).join(" · ")
+        : "—";
+    },
   };
-  const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const esc = (s) =>
+    String(s ?? "").replace(
+      /[&<>"']/g,
+      (c) =>
+        ({
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&#39;",
+        })[c],
+    );
 
   function fill(data) {
     if (!data || data.state !== "observed") return;
@@ -25,18 +50,26 @@
     const mem = d.memory || {};
     const total = mem.MemTotal?.value;
     const avail = mem.MemAvailable?.value;
-    const used = (total != null && avail != null) ? total - avail : null;
+    const used = total != null && avail != null ? total - avail : null;
     document.getElementById("statMemory").textContent = fmt.pct(used, total);
     document.getElementById("memBar").style.width = fmt.pct(used, total);
-    document.getElementById("memSub").textContent = `${fmt.bytes(used)} / ${fmt.bytes(total)}`;
+    document.getElementById("memSub").textContent =
+      `${fmt.bytes(used)} / ${fmt.bytes(total)}`;
 
     // Disk
     const fs = d.filesystem?.value;
     if (fs) {
       const diskUsed = fs.total - fs.available;
-      document.getElementById("statDisk").textContent = fmt.pct(diskUsed, fs.total);
-      document.getElementById("diskBar").style.width = fmt.pct(diskUsed, fs.total);
-      document.getElementById("diskSub").textContent = `${fmt.bytes(diskUsed)} / ${fmt.bytes(fs.total)}`;
+      document.getElementById("statDisk").textContent = fmt.pct(
+        diskUsed,
+        fs.total,
+      );
+      document.getElementById("diskBar").style.width = fmt.pct(
+        diskUsed,
+        fs.total,
+      );
+      document.getElementById("diskSub").textContent =
+        `${fmt.bytes(diskUsed)} / ${fmt.bytes(fs.total)}`;
     }
 
     // Load
@@ -49,22 +82,24 @@
     document.getElementById("statUptime").textContent = fmt.uptime(up);
     const os = d.system?.os?.value;
     const kernel = d.system?.kernel?.value;
-    document.getElementById("osSub").textContent = `${os || "—"} · kernel ${kernel || "—"}`;
+    document.getElementById("osSub").textContent =
+      `${os || "—"} · kernel ${kernel || "—"}`;
 
     // Network
     const ifaces = d.interfaces?.value;
     const box = document.getElementById("netBox");
     if (ifaces && Array.isArray(ifaces)) {
       const rows = ifaces
-        .filter(i => i.operstate === "UP" && !i.ifname.startsWith("lo"))
+        .filter((i) => i.operstate === "UP" && !i.ifname.startsWith("lo"))
         .slice(0, 6)
-        .map(i => {
+        .map((i) => {
           const addrs = (i.addr_info || [])
-            .filter(a => a.family === "inet")
-            .map(a => `${a.local}/${a.prefixlen}`)
+            .filter((a) => a.family === "inet")
+            .map((a) => `${a.local}/${a.prefixlen}`)
             .join(", ");
           return `<div class="net-item"><span class="iface">${esc(i.ifname)}</span><span class="cidr">${esc(addrs)}</span></div>`;
-        }).join("");
+        })
+        .join("");
       box.innerHTML = rows || '<span class="muted">no UP interfaces</span>';
     }
     renderConnectivity(data);
@@ -73,21 +108,27 @@
     const suggs = d.suggestions || [];
     const sbox = document.getElementById("suggBox");
     if (suggs.length) {
-      sbox.innerHTML = suggs.map(s => `
+      sbox.innerHTML = suggs
+        .map(
+          (s) => `
         <div class="suggestion">
           <div class="title">${s.title}</div>
           <div class="detail">${s.detail}</div>
-        </div>`).join("");
+        </div>`,
+        )
+        .join("");
     } else {
       sbox.innerHTML = '<span class="muted">no advisories</span>';
     }
 
     // Hardware
     const hw = d.hardware || {};
-    document.getElementById("hwMaker").textContent = hw.Manufacturer?.value || "—";
+    document.getElementById("hwMaker").textContent =
+      hw.Manufacturer?.value || "—";
     document.getElementById("hwModel").textContent = hw.Model?.value || "—";
     document.getElementById("hwCpu").textContent = hw.Processor?.value || "—";
-    document.getElementById("hwKernel").textContent = d.system?.kernel?.value || "—";
+    document.getElementById("hwKernel").textContent =
+      d.system?.kernel?.value || "—";
   }
 
   // initial fill
@@ -99,7 +140,9 @@
     try {
       const res = await fetch("/api/status", { cache: "no-store" });
       if (res.ok) fill(await res.json());
-    } catch (e) { console.debug("status poll failed", e); }
+    } catch (e) {
+      console.debug("status poll failed", e);
+    }
   }
   setInterval(poll, 10000);
   poll();
@@ -113,29 +156,35 @@
     dns_resolution: "Endpoint name resolution",
     https: "TLS connection to endpoint",
   };
-  const checkText = reading => {
+  const checkText = (reading) => {
     if (reading?.state !== "observed") return reading?.detail || "unavailable";
     const v = reading.value;
     if (typeof v === "string") return v;
     if (Array.isArray(v)) return v.join(", ") || "None";
-    if (v.host) return `Reached ${v.host}${v.peer?.length ? " (certificate presented)" : ""}`;
+    if (v.host)
+      return `Reached ${v.host}${v.peer?.length ? " (certificate presented)" : ""}`;
     if (v.value) return `${v.value}${v.device ? ` on ${v.device}` : ""}`;
     if (v.addresses) return v.addresses.join(", ");
     return JSON.stringify(v);
   };
 
   function renderConnectivity(data) {
-    const settings = data.connectivity || { enabled: false, endpoints: ["https://example.com/"] };
+    const settings = data.connectivity || {
+      enabled: false,
+      endpoints: ["https://example.com/"],
+    };
     const checks = data.checks || {};
     const statusLine = document.getElementById("connStatus");
     if (!statusLine) return;
 
     let status = "not tested";
     if (settings.enabled) {
-      const reachable = ["gateway_reachable", "dns_reachable", "https"]
-        .filter(k => checks[k]?.state === "observed");
+      const reachable = ["gateway_reachable", "dns_reachable", "https"].filter(
+        (k) => checks[k]?.state === "observed",
+      );
       if (checks.https?.state === "observed") status = "reachable";
-      else if (checks.dns_resolution?.state === "unavailable") status = "name resolution failing";
+      else if (checks.dns_resolution?.state === "unavailable")
+        status = "name resolution failing";
       else if (reachable.length) status = "partial connectivity";
       else if (Object.keys(checks).length) status = "not verified";
     }
@@ -148,17 +197,23 @@
       .map(([key, label]) => {
         const state = checks[key]?.state;
         return `<tr><th>${esc(label)}</th><td class="${state === "observed" ? "ok" : ""}">${esc(checkText(checks[key]))}</td></tr>`;
-      }).join("");
+      })
+      .join("");
     table.querySelector("tbody").innerHTML = rows;
     table.hidden = !rows;
 
     const explain = document.getElementById("connExplain");
-    const lines = data.explanations?.length ? data.explanations
-      : ["Outbound checks are off. Enable them to test the gateway, DNS, and an approved endpoint."];
-    explain.innerHTML = lines.map(t => `<p>${esc(t)}</p>`).join("");
+    const lines =
+      data.explanations?.length ?
+        data.explanations
+      : [
+          "Outbound checks are off. Enable them to test the gateway, DNS, and an approved endpoint.",
+        ];
+    explain.innerHTML = lines.map((t) => `<p>${esc(t)}</p>`).join("");
 
     const input = document.getElementById("connEndpoint");
-    if (document.activeElement !== input) input.value = settings.endpoints?.[0] || "https://example.com/";
+    if (document.activeElement !== input)
+      input.value = settings.endpoints?.[0] || "https://example.com/";
     document.getElementById("connEnable").disabled = settings.enabled;
     document.getElementById("connDisable").disabled = !settings.enabled;
   }
@@ -169,21 +224,37 @@
     errorBox.textContent = "";
     // Disabling must not depend on the box holding a valid address: the point
     // of the button is to stop probing even when the field was left in a bad state.
-    const body = enabled ? { enabled: true, endpoints: [input.value.trim()] } : { enabled: false };
+    const body =
+      enabled ?
+        { enabled: true, endpoints: [input.value.trim()] }
+      : { enabled: false };
     try {
       const res = await fetch("/api/connectivity", {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
       const data = await res.json();
-      if (!res.ok) { errorBox.textContent = data.error || "Could not change check settings."; return; }
+      if (!res.ok) {
+        errorBox.textContent = data.error || "Could not change check settings.";
+        return;
+      }
       await poll();
-    } catch (e) { errorBox.textContent = "Could not reach the server to change check settings."; }
+    } catch (e) {
+      errorBox.textContent =
+        "Could not reach the server to change check settings.";
+    }
   }
 
-  document.getElementById("connEnable")?.addEventListener("click", () => saveConnectivity(true));
-  document.getElementById("connDisable")?.addEventListener("click", () => saveConnectivity(false));
-  document.getElementById("connForm")?.addEventListener("submit", e => e.preventDefault());
+  document
+    .getElementById("connEnable")
+    ?.addEventListener("click", () => saveConnectivity(true));
+  document
+    .getElementById("connDisable")
+    ?.addEventListener("click", () => saveConnectivity(false));
+  document
+    .getElementById("connForm")
+    ?.addEventListener("submit", (e) => e.preventDefault());
 
   // notification thresholds
   const THRESHOLD_FIELDS = [
@@ -205,9 +276,13 @@
   async function loadThresholds() {
     if (!document.getElementById("threshForm")) return;
     try {
-      const res = await fetch("/api/notifications/thresholds", { cache: "no-store" });
+      const res = await fetch("/api/notifications/thresholds", {
+        cache: "no-store",
+      });
       if (res.ok) fillThresholds(await res.json());
-    } catch (e) { /* the form keeps its defaults; not worth a banner */ }
+    } catch (e) {
+      /* the form keeps its defaults; not worth a banner */
+    }
   }
   loadThresholds();
 
@@ -221,33 +296,42 @@
       const raw = document.getElementById(id).value.trim();
       const value = Number(raw);
       if (!raw || !Number.isInteger(value)) {
-        errorBox.textContent = "Enter a whole number in each box before saving.";
+        errorBox.textContent =
+          "Enter a whole number in each box before saving.";
         return;
       }
       body[key] = value;
     }
     try {
       const res = await fetch("/api/notifications/thresholds", {
-        method: "PUT", headers: { "Content-Type": "application/json" },
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
       const data = await res.json();
-      if (!res.ok) { errorBox.textContent = data.error || "Could not save the thresholds."; return; }
+      if (!res.ok) {
+        errorBox.textContent = data.error || "Could not save the thresholds.";
+        return;
+      }
       fillThresholds(data);
       poll();
-    } catch (e) { errorBox.textContent = "Could not reach the server to save the thresholds."; }
+    } catch (e) {
+      errorBox.textContent =
+        "Could not reach the server to save the thresholds.";
+    }
   });
 
   // unlock (when auth is enabled)
   const lockForm = document.getElementById("lockForm");
   const lockError = document.getElementById("lockError");
-  lockForm?.addEventListener("submit", async e => {
+  lockForm?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const code = document.getElementById("lockCode").value;
     lockError.textContent = "";
     try {
       const res = await fetch("/api/login", {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code }),
       });
       if (!res.ok) {
@@ -256,31 +340,64 @@
         return;
       }
       document.getElementById("lockBanner")?.remove();
+      const next = new URLSearchParams(window.location.search).get("next");
+      if (next) {
+        const target = new URL(next, window.location.origin);
+        if (target.origin === window.location.origin) {
+          window.location.replace(
+            `${target.pathname}${target.search}${target.hash}`,
+          );
+          return;
+        }
+      }
       poll();
-    } catch (err2) { lockError.textContent = "Unlock failed."; }
+    } catch (err2) {
+      lockError.textContent = "Unlock failed.";
+    }
   });
 
   // actions + audit
   async function loadActions() {
     try {
-      const [svcRes, profRes] = await Promise.all([fetch("/api/services"), fetch("/api/profiles")]);
+      const [svcRes, profRes] = await Promise.all([
+        fetch("/api/services"),
+        fetch("/api/profiles"),
+      ]);
       const svc = svcRes.ok ? await svcRes.json() : null;
       const prof = profRes.ok ? await profRes.json() : null;
       const box = document.getElementById("actionsBox");
       if (!box) return;
-      const svcHtml = svc?.state === "observed" && svc.value.length
-        ? `<h3>User services</h3><ul class="action-list">${svc.value.map(s =>
-            `<li><span class="iface">${esc(s.name)}</span> <span class="cidr">${esc(s.active)} / ${esc(s.sub)}</span>
+      const svcHtml =
+        svc?.state === "observed" && svc.value.length ?
+          `<h3>User services</h3><ul class="action-list">${svc.value
+            .map(
+              (s) =>
+                `<li><span class="iface">${esc(s.name)}</span> <span class="cidr">${esc(s.active)} / ${esc(s.sub)}</span>
                <button type="button" data-action="restart" data-name="${esc(s.name)}">Restart</button>
-               <button type="button" data-action="start" data-name="${esc(s.name)}">Start</button></li>`).join("")}</ul>`
-        : (svc?.state === "unavailable" ? `<p class="muted">${esc(svc.detail || "user services unavailable")}</p>` : "");
-      const profHtml = prof?.state === "observed" && prof.value.length
-        ? `<h3>Network profiles</h3><ul class="action-list">${prof.value.map(p =>
-            `<li><span class="iface">${esc(p.name)}</span> <span class="cidr">${esc(p.type)}${p.device ? " · " + esc(p.device) : ""}</span>
-               <button type="button" data-profile="1" data-name="${esc(p.name)}">Activate</button></li>`).join("")}</ul>`
-        : (prof?.state === "unavailable" ? `<p class="muted">${esc(prof.detail || "no profiles")}</p>` : "");
-      box.innerHTML = (svcHtml + profHtml) || '<p class="muted">No managed services or profiles currently available.</p>';
-    } catch (e3) { console.debug("actions load failed", e3); }
+               <button type="button" data-action="start" data-name="${esc(s.name)}">Start</button></li>`,
+            )
+            .join("")}</ul>`
+        : svc?.state === "unavailable" ?
+          `<p class="muted">${esc(svc.detail || "user services unavailable")}</p>`
+        : "";
+      const profHtml =
+        prof?.state === "observed" && prof.value.length ?
+          `<h3>Network profiles</h3><ul class="action-list">${prof.value
+            .map(
+              (p) =>
+                `<li><span class="iface">${esc(p.name)}</span> <span class="cidr">${esc(p.type)}${p.device ? " · " + esc(p.device) : ""}</span>
+               <button type="button" data-profile="1" data-name="${esc(p.name)}">Activate</button></li>`,
+            )
+            .join("")}</ul>`
+        : prof?.state === "unavailable" ?
+          `<p class="muted">${esc(prof.detail || "no profiles")}</p>`
+        : "";
+      box.innerHTML =
+        svcHtml + profHtml ||
+        '<p class="muted">No managed services or profiles currently available.</p>';
+    } catch (e3) {
+      console.debug("actions load failed", e3);
+    }
   }
 
   async function loadAudit() {
@@ -290,62 +407,106 @@
       const box = document.getElementById("auditBox");
       if (!box) return;
       const actions = data?.actions || [];
-      const codeOf = a => {
+      const codeOf = (a) => {
         const raw = a?.result;
-        const parsed = typeof raw === "string" ? (() => { try { return JSON.parse(raw); } catch { return null; } })() : raw;
+        const parsed =
+          typeof raw === "string" ?
+            (() => {
+              try {
+                return JSON.parse(raw);
+              } catch {
+                return null;
+              }
+            })()
+          : raw;
         return parsed?.code;
       };
-      box.innerHTML = actions.length ? `<ul class="action-list">${actions.map(a =>
-        `<li><span class="iface">${esc(a.action_type)}</span> <span class="cidr">${esc(a.parameters || "")}</span>
-           <span class="tag ${codeOf(a) === 0 ? "dot-ok" : "dot-bad"}">${esc(codeOf(a) === 0 ? "ok" : "failed")}</span></li>`).join("")}</ul>`
+      box.innerHTML =
+        actions.length ?
+          `<ul class="action-list">${actions
+            .map(
+              (a) =>
+                `<li><span class="iface">${esc(a.action_type)}</span> <span class="cidr">${esc(a.parameters || "")}</span>
+           <span class="tag ${codeOf(a) === 0 ? "dot-ok" : "dot-bad"}">${esc(codeOf(a) === 0 ? "ok" : "failed")}</span></li>`,
+            )
+            .join("")}</ul>`
         : '<p class="muted">The SQLite audit log is populated once approved actions run.</p>';
-    } catch (e4) { console.debug("audit load failed", e4); }
+    } catch (e4) {
+      console.debug("audit load failed", e4);
+    }
   }
 
   loadActions();
   loadAudit();
 
   // approved-action flow: approve (issue single-use token) -> execute -> render outcome
-  document.addEventListener("click", async ev => {
+  document.addEventListener("click", async (ev) => {
     const btn = ev.target.closest("[data-action], [data-profile]");
-    if (!btn || !document.body.contains(document.getElementById("actionsBox"))) return;
+    if (!btn || !document.body.contains(document.getElementById("actionsBox")))
+      return;
     btn.disabled = true;
     const original = btn.textContent;
     btn.textContent = "…";
-    const action_type = btn.hasAttribute("data-profile") ? "nm_activate" : `service_${btn.dataset.action}`;
+    const action_type =
+      btn.hasAttribute("data-profile") ? "nm_activate" : (
+        `service_${btn.dataset.action}`
+      );
     const name = btn.dataset.name;
     try {
       const approve = await fetch("/api/approve", {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action_type, parameters: { name } }),
       });
       const approved = await approve.json();
-      if (!approve.ok) { btn.textContent = original; alert(approved.error || "Approval failed."); return; }
+      if (!approve.ok) {
+        btn.textContent = original;
+        alert(approved.error || "Approval failed.");
+        return;
+      }
       const execute = await fetch("/api/execute", {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ approval_token: approved.approval_token }),
       });
       const outcome = await execute.json();
       btn.textContent = original;
       btn.disabled = false;
-      alert(`${action_type} ${name}: ${outcome.outcome || (outcome.error || "failed")}`);
+      alert(
+        `${action_type} ${name}: ${outcome.outcome || outcome.error || "failed"}`,
+      );
       loadAudit();
-    } catch (e5) { btn.textContent = original; btn.disabled = false; }
+    } catch (e5) {
+      btn.textContent = original;
+      btn.disabled = false;
+    }
   });
 
   // copy a command block to the clipboard
-  document.addEventListener("click", ev => {
+  document.addEventListener("click", (ev) => {
     const el = ev.target.closest("[data-copy]");
     if (!el) return;
-    navigator.clipboard.writeText(el.textContent.trim()).then(
-      () => { el.dataset.copied = "1"; setTimeout(() => { delete el.dataset.copied; }, 1200); });
+    const field =
+      el.matches("input, textarea") ? el : el.querySelector("input, textarea");
+    const text = field ? field.value : el.textContent.trim();
+    navigator.clipboard.writeText(text).then(() => {
+      el.dataset.copied = "1";
+      setTimeout(() => {
+        delete el.dataset.copied;
+      }, 1200);
+    });
   });
 
   // theme toggle
   const root = document.documentElement;
   const btn = document.getElementById("themeToggle");
-  function apply(t) { root.classList.toggle("light", t === "light"); }
-  apply(localStorage.getItem("theme") || (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark"));
+  function apply(t) {
+    root.classList.toggle("light", t === "light");
+  }
+  apply(
+    localStorage.getItem("theme") ||
+      (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark"),
+  );
   btn?.addEventListener("click", () => {
     const next = root.classList.contains("light") ? "dark" : "light";
     localStorage.setItem("theme", next);

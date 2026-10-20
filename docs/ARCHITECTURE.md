@@ -39,17 +39,18 @@ The canonical app is a **Flask application** (`system_manager/`) that mounts fea
 ## Core Modules
 
 ### `snapshot()` — Read-Only Collection
+
 Pure functions, no side effects. Each collector returns a normalized dict with `{state: "observed"|"unavailable", value: ..., detail?: ...}`.
 
-| Collector | Source | Key Metrics |
-|-----------|--------|-------------|
-| `system` | `os.uname()`, `/proc/uptime`, `/proc/loadavg`, `/etc/os-release`, `/proc/cpuinfo` | OS, kernel, CPU count, load, uptime |
-| `hardware` | `/sys/class/dmi/id/{sys_vendor,product_name}`, `/proc/cpuinfo` | Vendor, model, CPU model |
-| `memory` | `/proc/meminfo` | MemTotal, MemAvailable, SwapTotal, SwapFree |
-| `filesystem` | `os.statvfs("/")` (or `/host/` in container) | Total, available bytes |
-| `interfaces` | `ip -j address show` | Name, operstate, addresses |
-| `routes` | `ip -j -4/-6 route show default` | Gateway, device per family |
-| `nameservers` | `/etc/resolv.conf` | List of nameserver IPs |
+| Collector     | Source                                                                            | Key Metrics                                 |
+| ------------- | --------------------------------------------------------------------------------- | ------------------------------------------- |
+| `system`      | `os.uname()`, `/proc/uptime`, `/proc/loadavg`, `/etc/os-release`, `/proc/cpuinfo` | OS, kernel, CPU count, load, uptime         |
+| `hardware`    | `/sys/class/dmi/id/{sys_vendor,product_name}`, `/proc/cpuinfo`                    | Vendor, model, CPU model                    |
+| `memory`      | `/proc/meminfo`                                                                   | MemTotal, MemAvailable, SwapTotal, SwapFree |
+| `filesystem`  | `os.statvfs("/")` (or `/host/` in container)                                      | Total, available bytes                      |
+| `interfaces`  | `ip -j address show`                                                              | Name, operstate, addresses                  |
+| `routes`      | `ip -j -4/-6 route show default`                                                  | Gateway, device per family                  |
+| `nameservers` | `/etc/resolv.conf`                                                                | List of nameserver IPs                      |
 
 These three are used by the **connectivity probes**, not by `/network`. They
 shell out to `ip` and read `/etc/resolv.conf` unprefixed, so they report the
@@ -58,18 +59,20 @@ container's view. The `/network` page needs the host's, and parses
 `/host/proc/net/*` cannot work and `nsenter` is unavailable.
 
 ### `connectivity_checks()` — Opt-In Active Probes
+
 Only runs when `config.enabled == true`. Uses configured destination (validated HTTPS URL).
 
-| Check | Method | Target |
-|-------|--------|--------|
-| `gateway` | Parse routes | Default gateway IP + device |
-| `gateway_reachable` | UDP `connect()` | Gateway (IPv4/IPv6) |
-| `dns_configured` | Parse `/etc/resolv.conf` | Nameserver list |
-| `dns_reachable` | UDP `connect()` | First nameserver |
-| `dns_resolution` | `socket.getaddrinfo()` | Destination hostname |
-| `https` | TLS `create_connection` + `wrap_socket` | Destination host:443 |
+| Check               | Method                                  | Target                      |
+| ------------------- | --------------------------------------- | --------------------------- |
+| `gateway`           | Parse routes                            | Default gateway IP + device |
+| `gateway_reachable` | UDP `connect()`                         | Gateway (IPv4/IPv6)         |
+| `dns_configured`    | Parse `/etc/resolv.conf`                | Nameserver list             |
+| `dns_reachable`     | UDP `connect()`                         | First nameserver            |
+| `dns_resolution`    | `socket.getaddrinfo()`                  | Destination hostname        |
+| `https`             | TLS `create_connection` + `wrap_socket` | Destination host:443        |
 
 ### `SnapshotCache` — Coalesced Collection
+
 - **Lock-protected** shared state
 - **10s interval** for main snapshot (coalesces concurrent requests)
 - **60s interval** for connectivity (independent)
@@ -79,6 +82,7 @@ Only runs when `config.enabled == true`. Uses configured destination (validated 
 > `SnapshotCache` in `server.py` is the panel's original store. Under Flask, the 60s connectivity cache lives in `system_manager/connectivity.py:ConnectivityStore` (same lock + staleness rules), while `status.collect()` stays a thin uncached collector; the two share `server.py`'s `connectivity_checks()`/`connectivity_diagnosis()`.
 
 ### `ActionAudit` — SQLite Logging
+
 ```sql
 CREATE TABLE actions (
   id INTEGER PRIMARY KEY,
@@ -91,33 +95,37 @@ CREATE TABLE actions (
   verification TEXT           -- JSON (post-exec state)
 );
 ```
+
 Indexes on `ts` and `token_hash`. Parameterized queries only.
 
 ### `Approval` — Single-Use Tokens
+
 - `issue(token_hash, action_type, parameters, preconditions, ttl=300)` → `approval_token` (hex)
 - `consume(approval_token)` → approval dict or `None` (expired/used/invalid)
 - In-memory dict with periodic cleanup
 - Bound to exact action type + parameters + session
 
 ### Actions
-| Action | Executable | Preconditions | Verification |
-|--------|------------|---------------|--------------|
-| `service_restart` | `systemctl --user restart <name>` | Not in `CRITICAL_SERVICES` | `systemctl --user is-active` |
-| `service_start` | `systemctl --user start <name>` | Not in `CRITICAL_SERVICES` | `systemctl --user is-active` |
-| `nm_activate` | `nmcli con up <name>` | `nmcli con checkpoint` succeeds | `nmcli con show --active` |
-| `nm_activate` rollback | `nmcli con rollback <checkpoint>` | On execute failure | N/A |
+
+| Action                 | Executable                        | Preconditions                   | Verification                 |
+| ---------------------- | --------------------------------- | ------------------------------- | ---------------------------- |
+| `service_restart`      | `systemctl --user restart <name>` | Not in `CRITICAL_SERVICES`      | `systemctl --user is-active` |
+| `service_start`        | `systemctl --user start <name>`   | Not in `CRITICAL_SERVICES`      | `systemctl --user is-active` |
+| `nm_activate`          | `nmcli con up <name>`             | `nmcli con checkpoint` succeeds | `nmcli con show --active`    |
+| `nm_activate` rollback | `nmcli con rollback <checkpoint>` | On execute failure              | N/A                          |
 
 ## Container Runtime
 
 ### Mounts
-| Host Path | Container Path | Purpose |
-|-----------|----------------|---------|
-| `/proc` | `/host/proc` | Process/kernel info |
-| `/sys` | `/host/sys` | Hardware, DMI |
-| `/etc` | `/host/etc` | OS release, resolv.conf |
-| `/run/user` | `/run/user` | User systemd bus |
-| `/var/run/dbus` | `/var/run/dbus` | System dbus (NM, systemd) |
-| `/sys/class/dmi` | `/sys/class/dmi` | Hardware IDs |
+
+| Host Path        | Container Path   | Purpose                   |
+| ---------------- | ---------------- | ------------------------- |
+| `/proc`          | `/host/proc`     | Process/kernel info       |
+| `/sys`           | `/host/sys`      | Hardware, DMI             |
+| `/etc`           | `/host/etc`      | OS release, resolv.conf   |
+| `/run/user`      | `/run/user`      | User systemd bus          |
+| `/var/run/dbus`  | `/var/run/dbus`  | System dbus (NM, systemd) |
+| `/sys/class/dmi` | `/sys/class/dmi` | Hardware IDs              |
 
 > **Known limitation — action endpoints were unreachable in the container; two
 > of the three causes are now fixed in the working tree.** Read-only
@@ -138,7 +146,7 @@ Indexes on `ts` and `token_hash`. Parameterized queries only.
 > 2. **AppArmor's `docker-default` profile denies D-Bus.** With the path
 >    corrected but AppArmor left at its default, `nmcli` fails with
 >    `GDBus.Error:org.freedesktop.DBus.Error.AccessDenied: An AppArmor policy
->    prevents this sender from sending this message`. **Addressed:**
+prevents this sender from sending this message`. **Addressed:**
 >    `docker-compose.yml` now sets `security_opt: [apparmor=unconfined]`.
 >    This deliberately loosens a security boundary — the container already
 >    runs with `pid: host`, so confinement is already partial — and dropping
@@ -160,14 +168,16 @@ Indexes on `ts` and `token_hash`. Parameterized queries only.
 > `system_manager/auth.py`. See CONTINUATION.md for the open item.
 
 ### Capabilities
-| Capability | Used For |
-|------------|----------|
-| `SYS_ADMIN` | `statvfs` on host root, some `/proc` reads |
-| `SYS_RESOURCE` | Resource limits, `getloadavg` |
-| `NET_ADMIN` | `nmcli` operations |
-| `CAP_DAC_READ_SEARCH` | Read root-owned files via mounts |
+
+| Capability            | Used For                                   |
+| --------------------- | ------------------------------------------ |
+| `SYS_ADMIN`           | `statvfs` on host root, some `/proc` reads |
+| `SYS_RESOURCE`        | Resource limits, `getloadavg`              |
+| `NET_ADMIN`           | `nmcli` operations                         |
+| `CAP_DAC_READ_SEARCH` | Read root-owned files via mounts           |
 
 ### Container User
+
 Runs as `${UID}:${GID}` (the host user, 1000 by default) rather than root. The
 Folder Organizer checkout is mounted `rw` because the app writes tag plans,
 proposals and exports there; as root those files would land in that project
@@ -177,6 +187,7 @@ the root-owned files. Side effect: `systemctl --user` now fails on a missing
 session bus rather than on being root; see the actions note in CONTINUATION.md.
 
 ### Network
+
 - Bridge networking, port 4000 published (`ports: ["4000:4000"]`) — was
   `network_mode: host` until switched from the project dashboard. Under host
   mode `localhost` was the host; under bridge it is the container, so anything
@@ -184,6 +195,7 @@ session bus rather than on being root; see the actions note in CONTINUATION.md.
 - `pid: host` — Access to host process namespace (for `--user` systemd)
 
 #### DNS scope
+
 - Host resolver configuration and upstream DNS are separate layers. A host
   `/etc/resolv.conf` entry such as `127.0.0.1` can point to a local dnsmasq
   listener; dnsmasq then forwards global queries according to its `server=`
@@ -201,22 +213,26 @@ session bus rather than on being root; see the actions note in CONTINUATION.md.
 ## Security Model
 
 ### Threat: Unauthorized Access
+
 - **Mitigation**: Rotating access code file (600 perms), never in URLs/logs
 - **Session**: HttpOnly, SameSite=Strict, 8h TTL, SHA256 stored
 - **Host/Origin**: Must match `http://127.0.0.1:PORT` or `http://localhost:PORT`
 - **CSRF**: `Sec-Fetch-Site: cross-site` rejected, Origin required for POST
 
 ### Threat: Command Injection
+
 - **Mitigation**: Fixed argv arrays, no shell, `subprocess.Popen`/`run` with explicit args
 - **Paths**: Absolute (`/usr/bin/nmcli`), no `$PATH` search
 - **Env**: Minimal `{"PATH": "/usr/bin:/usr/sbin", "LC_ALL": "C"}`
 
 ### Threat: Privilege Escalation
+
 - **Mitigation**: Runs as unprivileged user in container
 - **Actions**: Only `--user` systemd (no sudo), NM profile activation (user-scoped or polkit)
 - **Rollback**: NM checkpoint created before activation, auto-rollback on failure
 
 ### Threat: Data Leakage
+
 - **Mitigation**: No telemetry, no external requests except approved connectivity checks
 - **Audit**: Redacts secrets (tokens, passwords) — only stores parameter names/values
 - **Logs**: Access code never written to stdout/stderr
@@ -236,6 +252,7 @@ index.html (served by /)
 ```
 
 ### State Machine
+
 ```
 [Boot] → [Login] → [Dashboard] ↔ [Pause/Refresh]
                 ↓
@@ -244,12 +261,12 @@ index.html (served by /)
 
 ## Testing Strategy
 
-| Layer | Tool | Coverage |
-|-------|------|----------|
-| Unit | `unittest` + `unittest.mock` | Collectors, cache, approval, audit, endpoint validation |
-| Integration | `unittest` + `http.client` | Full HTTP stack: auth, CSRF, logout, session expiry |
-| Contract | Fixtures + mocks | Malformed input, timeouts, permission errors, unavailable sensors |
-| Smoke | Manual / browser | Full UI flow, container mounts, real system data |
+| Layer       | Tool                         | Coverage                                                          |
+| ----------- | ---------------------------- | ----------------------------------------------------------------- |
+| Unit        | `unittest` + `unittest.mock` | Collectors, cache, approval, audit, endpoint validation           |
+| Integration | `unittest` + `http.client`   | Full HTTP stack: auth, CSRF, logout, session expiry               |
+| Contract    | Fixtures + mocks             | Malformed input, timeouts, permission errors, unavailable sensors |
+| Smoke       | Manual / browser             | Full UI flow, container mounts, real system data                  |
 
 Run: `cd tests && PYTHONPATH=<repo root> python3 -m unittest discover` (230 tests, ~4s).
 **The interpreter must be 3.12+.** `server.valid_endpoint()` calls
@@ -271,27 +288,27 @@ The organizer's host-side tests (`test_fetch_subtitles.py`, `test_video_catalog.
 
 ## Performance Characteristics
 
-| Metric | Value |
-|--------|-------|
-| Snapshot latency | ~50-100ms (local commands) |
-| Connectivity latency | ~2-5s (sequential probes) |
-| Memory footprint | ~15-25 MB (Python + SQLite) |
-| CPU (idle) | <1% |
-| Cache coalescing | 10s window, unlimited concurrent readers |
-| Audit DB size | ~1 KB per action |
+| Metric               | Value                                    |
+| -------------------- | ---------------------------------------- |
+| Snapshot latency     | ~50-100ms (local commands)               |
+| Connectivity latency | ~2-5s (sequential probes)                |
+| Memory footprint     | ~15-25 MB (Python + SQLite)              |
+| CPU (idle)           | <1%                                      |
+| Cache coalescing     | 10s window, unlimited concurrent readers |
+| Audit DB size        | ~1 KB per action                         |
 
 ## Failure Modes
 
-| Component | Failure | Behavior |
-|-----------|---------|----------|
-| `ip` command | Missing/timeout | `state: "unavailable"`, detail logged |
-| `systemctl --user` | No user bus | `state: "unavailable"`, empty list |
-| `nmcli` | No NM/timeout | `state: "unavailable"`, actions disabled |
-| SQLite | Disk full/perm | Exception caught, audit skipped, action continues |
-| Network probe | Timeout/refused | `state: "unavailable"`, diagnosis reflects |
-| Container mount | Missing path | Reads return `unavailable`, no crash |
+| Component          | Failure         | Behavior                                          |
+| ------------------ | --------------- | ------------------------------------------------- |
+| `ip` command       | Missing/timeout | `state: "unavailable"`, detail logged             |
+| `systemctl --user` | No user bus     | `state: "unavailable"`, empty list                |
+| `nmcli`            | No NM/timeout   | `state: "unavailable"`, actions disabled          |
+| SQLite             | Disk full/perm  | Exception caught, audit skipped, action continues |
+| Network probe      | Timeout/refused | `state: "unavailable"`, diagnosis reflects        |
+| Container mount    | Missing path    | Reads return `unavailable`, no crash              |
 
 ---
 
-*Updated 2026-09-24 to reflect the Flask-first architecture, the 
-`system_manager/auth.py` port, and the SQLite-backed inventory store.*
+_Updated 2026-09-24 to reflect the Flask-first architecture, the
+`system_manager/auth.py` port, and the SQLite-backed inventory store._

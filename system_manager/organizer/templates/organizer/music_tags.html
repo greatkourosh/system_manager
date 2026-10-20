@@ -55,14 +55,11 @@
     <div class="col-auto"><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('organizer.organizer_api.music_tags_page') }}">Reset</a></div>
   </div>
   <div class="mt-2 d-flex flex-wrap gap-2">
-    <button class="btn btn-sm btn-success" onclick="propose()">⚡ Auto-detect proposals (filtered)</button>
-    <button class="btn btn-sm btn-outline-primary" onclick="bulk('accept')">Accept page</button>
-    <button class="btn btn-sm btn-outline-success" onclick="bulk('accept-safe')" title="Accept only proposals where every field is med/high confidence and no existing tag would be overwritten">Auto-accept safe (filtered)</button>
-    <button class="btn btn-sm btn-outline-secondary" onclick="bulk('unaccept')">Unaccept page</button>
-    {% if mb_available %}<button class="btn btn-sm btn-outline-info" onclick="mergeMB()">Merge MusicBrainz candidates</button>{% endif %}
-    <button class="btn btn-sm btn-danger" onclick="exportPlan()">Export fix script</button>
-    <button class="btn btn-sm btn-outline-danger" onclick="clearPlan()">Clear plan</button>
-    <span class="ms-auto text-muted small">Filtered: <strong>{{ shown }}</strong> files · page {{ page+1 }}/{{ pages }}</span>
+    <button class="btn btn-sm btn-success" onclick="propose()">1. Find suggestions</button>
+    <button class="btn btn-sm btn-primary" onclick="applyAll()">2. Apply all suggested changes</button>
+    <button class="btn btn-sm btn-danger" onclick="writeTags()">3. Write tags to files</button>
+    <button class="btn btn-sm btn-outline-danger" onclick="clearPlan()">Clear suggestions</button>
+    <span id="summary" class="ms-auto text-muted small">Filtered: <strong>{{ shown }}</strong> files · page {{ page+1 }}/{{ pages }}</span>
   </div>
 </div>
 
@@ -102,7 +99,7 @@
 {% endfor %}
 </div>
 
-<nav class="d-flex gap-2 align-items-center my-3 flex-wrap">
+<nav id="pager" class="d-flex gap-2 align-items-center my-3 flex-wrap">
   {% if page > 0 %}<a class="btn btn-sm btn-outline-secondary" href="#" onclick="applyFilter({{ page-1 }});return false;">&larr; Prev</a>{% endif %}
   <span class="text-muted small">page {{ page+1 }} / {{ pages }} ({{ shown }} files)</span>
   {% if page+1 < pages %}<a class="btn btn-sm btn-outline-secondary" href="#" onclick="applyFilter({{ page+1 }});return false;">Next &rarr;</a>{% endif %}
@@ -138,8 +135,12 @@ async function post(url, body) {
   const r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
   return r.json();
 }
-function pagePaths() {
-  return [...document.querySelectorAll('#problems .card')].map(c => c.dataset.path);
+async function refreshPanel() {
+  const doc = new DOMParser().parseFromString(await (await fetch(location.href)).text(), 'text/html');
+  for (const id of ['problems', 'summary', 'pager']) {
+    const fresh = doc.getElementById(id), cur = document.getElementById(id);
+    if (fresh && cur) cur.replaceWith(fresh);
+  }
 }
 function currentFilters() {
   return {q: document.getElementById('filterBox').value, folder: document.getElementById('folderSel').value,
@@ -148,11 +149,9 @@ function currentFilters() {
 
 async function propose() {
   const f = currentFilters();
-  if (!confirm('Auto-detect tags for all filtered files without proposals and add them to the plan?')) return;
   const j = await post(U['api/tags/propose'], {filters: f});
   if (!j.ok) { alert('Failed: ' + j.error); return; }
-  alert(`Proposed tags for ${j.proposed} files (plan now ${j.plan_size}).`);
-  location.reload();
+  await refreshPanel();
 }
 
 async function saveField(input) {
@@ -166,26 +165,27 @@ async function setOverwrite(path, field, on) {
   const input = document.querySelector(`.tag-input[data-path="${CSS.escape(path)}"][data-field="${field}"]`);
   await post(U['api/tags/set-entry'], {path: path, fields: {[field]: {value: input ? input.value : '', overwrite: on}}});
 }
-async function bulk(mode) {
-  if (!confirm(`${mode} for all files on this page?`)) return;
-  const j = await post(U['api/tags/bulk'], {mode: mode, page_paths: pagePaths()});
-  location.reload();
-}
 async function clearPlan() {
   if (!confirm('Delete ALL proposals in the plan? Accepted manual edits are lost too.')) return;
   await post(U['api/tags/clear-plan'], {});
-  location.reload();
+  await refreshPanel();
 }
-async function mergeMB() {
-  const j = await post(U['api/tags/merge-mb'], {});
-  if (!j.ok) { alert('Failed: ' + j.error); return; }
-  alert(`Merged ${j.fields_merged} fields from MusicBrainz candidates.`);
-  location.reload();
+async function writeTags() {
+  const dry = await post(U['api/tags/apply'], {dry: true});
+  if (!dry.ok) { alert('Failed: ' + dry.error); return; }
+  if (!confirm(`Dry run: ${dry.summary}\n\nWrite these tags into the music files now?`)) return;
+  const real = await post(U['api/tags/apply'], {dry: false});
+  if (!real.ok) { alert('Failed: ' + real.error); return; }
+  alert(real.summary);
+  await refreshPanel();
 }
-async function exportPlan() {
+async function applyAll() {
+  const acc = await post(U['api/tags/bulk'], {mode: 'accept', filters: currentFilters()});
+  if (!acc.ok) { alert('Failed: ' + acc.error); return; }
   const j = await post(U['api/tags/export'], {filters: currentFilters()});
-  if (!j.ok) { alert('Failed: ' + j.error); return; }
+  if (!j.ok) { alert('Failed: ' + j.error); await refreshPanel(); return; }
   showModal(j);
+  await refreshPanel();
 }
 function showModal(j) {
   const host = document.getElementById('modalHost');

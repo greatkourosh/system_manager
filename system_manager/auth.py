@@ -108,8 +108,10 @@ class ActionAudit:
                     result TEXT NOT NULL,
                     verification TEXT
                 )""")
-                db.execute("CREATE INDEX IF NOT EXISTS idx_actions_ts ON actions(ts)")
-                db.execute("CREATE INDEX IF NOT EXISTS idx_actions_token ON actions(token_hash)")
+                db.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_actions_ts ON actions(ts)")
+                db.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_actions_token ON actions(token_hash)")
 
     def record(self, token_hash, action_type, parameters, preconditions, result, verification=None):
         with self.lock:
@@ -156,7 +158,8 @@ class Settings:
     def __init__(self, path, defaults=None):
         self.path = Path(path)
         self.lock = threading.Lock()
-        self.defaults = dict(DEFAULT_THRESHOLDS if defaults is None else defaults)
+        self.defaults = dict(
+            DEFAULT_THRESHOLDS if defaults is None else defaults)
         with self.lock:
             with sqlite3.connect(self.path) as db:
                 db.execute("""CREATE TABLE IF NOT EXISTS settings (
@@ -167,7 +170,8 @@ class Settings:
     def get(self, key, default=None):
         with self.lock:
             with sqlite3.connect(self.path) as db:
-                row = db.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+                row = db.execute(
+                    "SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
         if row is not None:
             return row[0]
         return self.defaults.get(key, default)
@@ -275,6 +279,7 @@ class Security:
             credential = secrets.token_urlsafe(32)
             fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
             with os.fdopen(fd, "w") as output:
+                os.fchmod(output.fileno(), 0o600)
                 output.write(credential + "\n")
             self.credential_path = path
             self.credential = credential
@@ -294,7 +299,8 @@ class Security:
             return True
         hashed = _hash(token)
         with self.lock:
-            self.sessions = {key: expiry for key, expiry in self.sessions.items() if expiry > time.monotonic()}
+            self.sessions = {key: expiry for key, expiry in self.sessions.items(
+            ) if expiry > time.monotonic()}
             return self.sessions.get(hashed, 0) > time.monotonic()
 
     def login(self, code):
@@ -305,13 +311,15 @@ class Security:
         with self.lock:
             now = time.monotonic()
             if now < self.login_blocked_until:
-                raise PermissionError("Too many attempts. Wait 30 seconds before trying again.")
+                raise PermissionError(
+                    "Too many attempts. Wait 30 seconds before trying again.")
             if self.credential is None or not secrets.compare_digest(code, self.credential):
                 self.failed_logins += 1
                 if self.failed_logins >= self.LOGIN_BLOCK_AFTER:
                     self.login_blocked_until = now + self.LOGIN_BLOCK_SECONDS
                     self.failed_logins = 0
-                raise PermissionError("Incorrect access code. Use the current code from the local credential file.")
+                raise PermissionError(
+                    "Incorrect access code. Use the current code from the local credential file.")
             self.failed_logins = 0
             token = secrets.token_urlsafe(32)
             self.sessions[_hash(token)] = now + self.SESSION_TTL
@@ -338,7 +346,8 @@ def _log(source, action_type, parameters, preconditions, result, verification):
     if audit is None:
         return
     token = current_app.config["SECURITY"].token_from(request)
-    audit.record(_hash(token), action_type, parameters, preconditions, result, verification)
+    audit.record(_hash(token), action_type, parameters,
+                 preconditions, result, verification)
 
 
 _ACTIONS = {
@@ -385,7 +394,8 @@ def user_services():
             continue
         name, load, active, sub, description = parts
         if name not in CRITICAL_SERVICES:
-            result.append({"name": name, "load": load, "active": active, "sub": sub, "description": description})
+            result.append({"name": name, "load": load, "active": active,
+                          "sub": sub, "description": description})
     return observed(result)
 
 
@@ -398,7 +408,8 @@ def nm_profiles():
     for line in profiles.strip().splitlines():
         parts = line.split(":")
         if len(parts) >= 3 and parts[1] in {"wireless", "vpn", "ethernet", "bridge", "bond", "team", "vlan"}:
-            result.append({"name": parts[0], "type": parts[1], "device": parts[2] or None})
+            result.append(
+                {"name": parts[0], "type": parts[1], "device": parts[2] or None})
     return observed(result)
 
 
@@ -411,7 +422,8 @@ def nm_checkpoint():
     there is currently no way to make a checkpoint from an unprivileged
     session, and activation proceeds with no rollback safety net.
     """
-    checkpoint = command_output(["/usr/bin/nmcli", "con", "checkpoint"], timeout=5)
+    checkpoint = command_output(
+        ["/usr/bin/nmcli", "con", "checkpoint"], timeout=5)
     if checkpoint is not None and checkpoint.strip():
         return observed(checkpoint.strip())
     return unavailable(
@@ -472,7 +484,10 @@ def requires_session_view():
     if "application/json" in (request.headers.get("Accept") or ""):
         return _authorize()
     from flask import redirect, url_for
-    return redirect(url_for("index"))
+    next_path = request.full_path
+    if next_path.endswith("?"):
+        next_path = next_path[:-1]
+    return redirect(url_for("index", next=next_path))
 
 
 AUTH_PREFIX = "/api"
@@ -584,7 +599,8 @@ def auth_blueprint():
             result = service_execute(_ACTIONS[action_type], name)
             verification = service_verify(name)
             outcome = "success" if result["code"] == 0 else "failure"
-            _log(auth_blueprint, action_type, parameters, preconditions, result, verification)
+            _log(auth_blueprint, action_type, parameters,
+                 preconditions, result, verification)
             return jsonify({"outcome": outcome, "result": result, "verification": verification}), 200
         name = parameters["name"]
         ok, checkpoint = nm_preconditions(name)
@@ -595,7 +611,8 @@ def auth_blueprint():
         result = nm_activate(name)
         verification = nm_verify(name)
         outcome = "success" if result["code"] == 0 else "failure"
-        _log(auth_blueprint, action_type, parameters, preconditions, result, verification)
+        _log(auth_blueprint, action_type, parameters,
+             preconditions, result, verification)
         if result["code"] != 0 and checkpoint:
             nm_rollback(checkpoint)
         return jsonify({"outcome": outcome, "result": result, "verification": verification}), 200

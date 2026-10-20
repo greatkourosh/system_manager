@@ -5,8 +5,8 @@ sibling checkout's app.py in-process and rewriting the absolute paths in its
 HTML, because a second Flask app on the same interpreter has to be reached
 through a proxy. Now that the routes are a blueprint, the paths in these
 templates are simply right.
-import base64
 """
+import base64
 import csv
 import hashlib
 import io
@@ -18,8 +18,8 @@ from collections import Counter
 from datetime import date
 
 from flask import Blueprint, Response, jsonify, render_template, request, send_file
-from media_path import to_host_path
 
+from media_path import to_host_path
 from . import subtitle_queue
 
 # Where the pre-generated JSON lives: the repo's data/ directory. The host-side
@@ -142,6 +142,7 @@ def scan_page():
         groups.append({**g, "copies": copies})
     return render_template("organizer/scan.html", s=summary, dups={"groups": groups[:200], "total": dups.get("total_groups", 0), "redundant": dups.get("total_redundant_bytes", 0)}, q=query)
 
+
 MUSIC_PAGE_SIZE = 48
 MUSIC_SORTS = {
     "tracks": lambda a: -a["tracks"],
@@ -208,12 +209,11 @@ def api_music_folder_cover():
         return "", 404
     return send_file(path, max_age=86400)
 
-
 @bp.route("/music")
 def music_page():
+    catalog = load("music_catalog.json") or []
     tags_audit = load("music_tag_audit.json") or {}
     untagged = {p["path"] for p in tags_audit.get("problems", [])}
-    catalog = load("music_catalog.json") or []
     query = request.args.get("q", "").strip().lower()
     drive = request.args.get("drive", "all")
     fmt = request.args.get("fmt", "all")
@@ -737,7 +737,12 @@ def music_tags_page():
         e = entries.get(p["path"])
         q["plan_entry"] = e
         page_problems.append(q)
-    folders = sorted(audit.get("per_folder", {}).items(), key=lambda kv: -kv[1]["no_tags"])[:60]
+    needs_only = request.args.get("needs_only", "1") == "1"
+    folders = sorted(audit.get("per_folder", {}).items(), key=lambda kv: -kv[1]["no_tags"])
+    if needs_only:
+        folders = [kv for kv in folders if kv[1]["no_tags"] > 0]
+    else:
+        folders = folders[:60]
     src = Counter()
     accepted_n = 0
     for e in entries.values():
@@ -1265,6 +1270,7 @@ def api_tags_propose():
     save_tag_plan(plan)
     return jsonify({"ok": True, "proposed": len(proposed), "plan_size": len(plan["entries"])})
 
+
 def _fill_years_from_musicbrainz(proposed, by_path):
     """Replace a guessed (low) year with the MusicBrainz release year when it matches well."""
     from . import mb_lookup
@@ -1368,7 +1374,6 @@ def api_music_fix_untagged():
                         "so the audit is out of date. Re-run the music tag audit, then try again.",
                         "summary": summary}), 400
     return jsonify({"ok": True, "dry": dry, "accepted": len(out_entries), "written": count, "summary": summary})
-
 
 @bp.route("/api/tags/set-entry", methods=["POST"])
 def api_tags_set_entry():
@@ -1528,6 +1533,20 @@ def api_tags_export():
                     "dry_command": run_cmd("apply_music_tags.py"),
                     "apply_command": run_cmd("apply_music_tags.py", "--apply")})
 
+
+@bp.route("/api/tags/apply", methods=["POST"])
+def api_tags_apply():
+    import io
+    import contextlib
+    import apply_music_tags
+    if not os.path.exists(TAG_FIX_LIST):
+        return jsonify({"ok": False, "error": "no fix list — click Apply all suggested changes first"}), 400
+    dry = (request.get_json(silent=True) or {}).get("dry", True)
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        apply_music_tags.apply(not dry)
+    summary = buf.getvalue().strip().splitlines()[0]
+    return jsonify({"ok": True, "dry": dry, "summary": summary})
 
 @bp.route("/api/tags/merge-mb", methods=["POST"])
 def api_tags_merge_mb():

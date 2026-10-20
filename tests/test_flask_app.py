@@ -6,6 +6,7 @@ collectors/actions still live in ``test_server.py``.
 """
 import json
 import os
+import stat
 import tempfile
 import unittest
 from pathlib import Path
@@ -50,10 +51,12 @@ class AuthApiTests(unittest.TestCase):
         # Unlocking in a second tab used to wipe the first tab's session, so
         # every organizer link then bounced to the dashboard root.
         first = self.app.test_client()
-        self.assertEqual(first.post("/api/login", json={"code": "correct-code"}).status_code, 200)
+        self.assertEqual(first.post(
+            "/api/login", json={"code": "correct-code"}).status_code, 200)
         second = self.app.test_client()
         self.security.credential = "second-code"
-        self.assertEqual(second.post("/api/login", json={"code": "second-code"}).status_code, 200)
+        self.assertEqual(second.post(
+            "/api/login", json={"code": "second-code"}).status_code, 200)
 
         self.assertEqual(first.get("/api/status").status_code, 200)
         self.assertEqual(first.get("/organizer/scan").status_code, 200)
@@ -63,7 +66,8 @@ class AuthApiTests(unittest.TestCase):
         app, security, _ = make_app(auth_enabled=False)
         client = app.test_client()
         self.assertEqual(client.get("/api/status").status_code, 200)
-        self.assertTrue(app.config["DISABLE_AUTH"] is not None and app.config["DISABLE_AUTH"])
+        self.assertTrue(app.config["DISABLE_AUTH"]
+                        is not None and app.config["DISABLE_AUTH"])
 
     def test_unwritable_token_path_reports_why_instead_of_a_bad_code(self):
         # A token path the process cannot write leaves no way in, so the login
@@ -75,10 +79,20 @@ class AuthApiTests(unittest.TestCase):
         self.assertIsNone(security.credential)
         self.assertIn(blocked, security.credential_error)
 
+    def test_issued_access_code_file_is_always_private(self):
+        security = auth.Security()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "access-code"
+            path.write_text("old-code\n", encoding="utf-8")
+            path.chmod(0o666)
+            security.issue_credential(path)
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+
     def test_login_reports_an_unissued_credential(self):
         self.security.credential = None
         self.security.credential_error = "Could not write the access code to /data/access-code."
-        response = self.client.post("/api/login", json={"code": "correct-code"})
+        response = self.client.post(
+            "/api/login", json={"code": "correct-code"})
         self.assertEqual(response.status_code, 500)
         self.assertIn("access code", response.get_json()["error"])
 
@@ -107,14 +121,16 @@ class ApprovalFlowTests(unittest.TestCase):
         token = approve.get_json()["approval_token"]
         with patch("system_manager.auth.service_execute",
                    return_value={"code": 0, "stdout": "ok", "stderr": ""}), \
-             patch("system_manager.auth.service_verify",
-                   return_value=auth.observed({"active": True})):
-            execute = self.client.post("/api/execute", json={"approval_token": token})
+            patch("system_manager.auth.service_verify",
+                  return_value=auth.observed({"active": True})):
+            execute = self.client.post(
+                "/api/execute", json={"approval_token": token})
         self.assertEqual(execute.status_code, 200)
         self.assertEqual(execute.get_json()["outcome"], "success")
         audit = self.client.get("/api/audit").get_json()["actions"]
         self.assertEqual(len(audit), 1)
-        self.assertEqual(json.loads(audit[0]["parameters"])["name"], "test.service")
+        self.assertEqual(json.loads(audit[0]["parameters"])[
+                         "name"], "test.service")
 
     def test_execute_rejects_reused_token(self):
         approve = self.client.post("/api/approve", json={
@@ -124,8 +140,10 @@ class ApprovalFlowTests(unittest.TestCase):
         token = approve.get_json()["approval_token"]
         with patch("system_manager.auth.service_execute",
                    return_value={"code": 0, "stdout": "", "stderr": ""}):
-            first = self.client.post("/api/execute", json={"approval_token": token})
-            second = self.client.post("/api/execute", json={"approval_token": token})
+            first = self.client.post(
+                "/api/execute", json={"approval_token": token})
+            second = self.client.post(
+                "/api/execute", json={"approval_token": token})
         self.assertEqual(first.status_code, 200)
         self.assertEqual(second.status_code, 400)
 

@@ -4,71 +4,128 @@
 <div class="page-head">
   <h1>Network</h1>
   <p class="muted">
-    Read-only view of the network stack, read from procfs. Nothing here
-    changes anything.
+    Host network status is read-only. DNS upstream changes require explicit
+    confirmation and include a saved rollback configuration.
   </p>
 </div>
 
 <div id="summary"><p class="muted">Loading summary&hellip;</p></div>
 
-<section>
-  <h2>Interfaces</h2>
-  <div class="pkg-table-wrap">
-    <table class="pkg-table">
-      <thead><tr><th>Name</th><th>State</th><th>MAC</th><th>IPv4</th><th>IPv6</th><th>MTU</th></tr></thead>
-      <tbody id="ifaces"></tbody>
-    </table>
+<details class="network-panel" id="dns-diagnostics" open>
+  <summary>DNS Diagnostics &amp; Optimizer</summary>
+  <div class="panel-body">
+    <div id="dns-current-setup" class="suggestion" style="margin-bottom: 1rem;">
+      <p class="muted"><strong>Current host DNS</strong> <span id="dns-current-setup-value">Loading...</span></p>
+    </div>
+    <div class="toolbar" style="margin-bottom: 1rem; display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center;">
+      <label class="muted" for="dns-domains">Domains</label>
+      <input id="dns-domains" type="text" value="google.com,github.com,docker.com,pypi.org,digikala.com,cloudflare.com" style="min-width: 28rem; max-width: 100%;">
+      <label class="muted" for="dns-quick"><input id="dns-quick" type="checkbox" checked> Quick test</label>
+      <button id="dns-run" type="button">Run diagnostics</button>
+      <button id="dns-use-recommended-pair" type="button" class="secondary" disabled>Set best + second best</button>
+      <button id="dns-apply" type="button" class="secondary" disabled>Apply selected pair</button>
+    </div>
+    <div id="dns-status" class="muted"></div>
+    <div id="dns-recommendation" style="margin-top: 1rem;"></div>
+    <div id="dns-selected-pair" class="suggestion" hidden></div>
+    <div id="dns-command-preview" class="dns-command-preview" hidden>
+      <p><strong>Command to apply this pair on the host</strong> <span class="muted">(run this in a host shell, not inside the container)</span></p>
+      <div class="lock-command" data-copy>
+        <textarea id="dns-apply-command" rows="8" readonly aria-label="Command to apply selected DNS servers" spellcheck="false"></textarea>
+        <small class="muted">Click to copy</small>
+      </div>
+      <p><strong>Rollback command</strong> <span class="muted">(restores the most recent dnsmasq backup)</span></p>
+      <div class="lock-command" data-copy>
+        <textarea id="dns-rollback-command-template" rows="2" readonly aria-label="Command to roll back DNS" spellcheck="false">sudo cp "$(ls -t /etc/dnsmasq.conf.bak.* | head -n1)" /etc/dnsmasq.conf &amp;&amp; sudo dnsmasq --test &amp;&amp; sudo systemctl restart dnsmasq</textarea>
+        <small class="muted">Click to copy</small>
+      </div>
+    </div>
+    <p class="muted">Applying changes only dnsmasq's global upstreams. Per-domain overrides are preserved. The previous configuration is backed up, and failed service verification triggers an automatic restore.</p>
+    <div id="dns-apply-result" class="suggestion" hidden>
+      <p id="dns-apply-message"></p>
+      <p class="muted">Rollback commands (run from the project directory):</p>
+      <pre><code id="dns-rollback-commands" data-copy></code></pre>
+      <button id="dns-rollback" type="button" class="secondary" hidden>Restore previous DNS now</button>
+    </div>
+    <div class="pkg-table-wrap" style="margin-top: 1rem;">
+      <table class="pkg-table">
+        <thead><tr><th>Provider</th><th>Primary</th><th>Secondary</th><th>Median</th><th>Success</th><th>Timeouts</th></tr></thead>
+        <tbody id="dns-provider-table"></tbody>
+      </table>
+    </div>
   </div>
-</section>
+</details>
 
-<section>
-  <h2>Routes</h2>
-  <div class="pkg-table-wrap">
-    <table class="pkg-table">
-      <thead><tr><th>Destination</th><th>Gateway</th><th>Device</th><th>Source</th></tr></thead>
-      <tbody id="routes"></tbody>
-    </table>
+<details class="network-panel" open>
+  <summary>Interfaces</summary>
+  <div class="panel-body">
+    <div class="pkg-table-wrap">
+      <table class="pkg-table">
+        <thead><tr><th>Name</th><th>State</th><th>MAC</th><th>IPv4</th><th>IPv6</th><th>MTU</th></tr></thead>
+        <tbody id="ifaces"></tbody>
+      </table>
+    </div>
   </div>
-</section>
+</details>
 
-<section>
-  <h2>DNS</h2>
-  <ul id="dns"></ul>
-</section>
-
-<section>
-  <h2>Listening Ports</h2>
-  <div class="pkg-table-wrap">
-    <table class="pkg-table">
-      <thead><tr><th>Proto</th><th>Address</th><th>Port</th><th>PID</th></tr></thead>
-      <tbody id="ports"></tbody>
-    </table>
+<details class="network-panel">
+  <summary>Routes</summary>
+  <div class="panel-body">
+    <div class="pkg-table-wrap">
+      <table class="pkg-table">
+        <thead><tr><th>Destination</th><th>Gateway</th><th>Device</th><th>Source</th></tr></thead>
+        <tbody id="routes"></tbody>
+      </table>
+    </div>
   </div>
-  <p class="muted" id="ports-note"></p>
-</section>
+</details>
 
-<section>
-  <h2>Neighbors (ARP)</h2>
-  <p class="muted">IPv4 neighbours the host has resolved. IPv6 neighbours are not listed: this kernel exposes no NDP table.</p>
-  <div class="pkg-table-wrap">
-    <table class="pkg-table">
-      <thead><tr><th>IP</th><th>MAC</th><th>Device</th><th>State</th></tr></thead>
-      <tbody id="neighbors"></tbody>
-    </table>
+<details class="network-panel">
+  <summary>DNS</summary>
+  <div class="panel-body">
+    <ul id="dns"></ul>
   </div>
-</section>
+</details>
 
-<section>
-  <h2>Connections</h2>
-  <p class="muted">The kernel's connection-tracking table, when the host exposes one.</p>
-  <div class="pkg-table-wrap">
-    <table class="pkg-table">
-      <thead><tr><th>Proto</th><th>State</th><th>Source</th><th>Destination</th></tr></thead>
-      <tbody id="ct"></tbody>
-    </table>
+<details class="network-panel">
+  <summary>Listening Ports</summary>
+  <div class="panel-body">
+    <div class="pkg-table-wrap">
+      <table class="pkg-table">
+        <thead><tr><th>Proto</th><th>Address</th><th>Port</th><th>PID</th></tr></thead>
+        <tbody id="ports"></tbody>
+      </table>
+    </div>
+    <p class="muted" id="ports-note"></p>
   </div>
-  <p class="muted" id="ct-note"></p>
-</section>
+</details>
+
+<details class="network-panel">
+  <summary>Neighbors (ARP)</summary>
+  <div class="panel-body">
+    <p class="muted">IPv4 neighbours the host has resolved. IPv6 neighbours are not listed: this kernel exposes no NDP table.</p>
+    <div class="pkg-table-wrap">
+      <table class="pkg-table">
+        <thead><tr><th>IP</th><th>MAC</th><th>Device</th><th>State</th></tr></thead>
+        <tbody id="neighbors"></tbody>
+      </table>
+    </div>
+  </div>
+</details>
+
+<details class="network-panel">
+  <summary>Connections</summary>
+  <div class="panel-body">
+    <p class="muted">The kernel's connection-tracking table, when the host exposes one.</p>
+    <div class="pkg-table-wrap">
+      <table class="pkg-table">
+        <thead><tr><th>Proto</th><th>State</th><th>Source</th><th>Destination</th></tr></thead>
+        <tbody id="ct"></tbody>
+      </table>
+    </div>
+    <p class="muted" id="ct-note"></p>
+  </div>
+</details>
 
 <script>
 // The API lives under the module prefix; derive it from the page's own path so
@@ -86,6 +143,57 @@ function fill(sel, rows, cols) {
     rows.length ? rows.map(cells => '<tr>' + cells.map(text).join('') + '</tr>').join('')
                 : '<tr><td colspan="' + (cols || 9) + '" class="muted">None.</td></tr>';
 }
+let latestDnsResults = null;
+let selectedDnsPair = null;
+function renderCurrentDnsSetup(servers, source, resolverServers) {
+  const value = document.getElementById('dns-current-setup-value');
+  if (!value) return;
+  const upstreams = Array.isArray(servers) && servers.length ? servers.join(', ') : 'not detected';
+  const resolvers = Array.isArray(resolverServers) && resolverServers.length
+    ? ' • system resolver: ' + resolverServers.join(', ') : '';
+  const label = source ? ' • source: ' + source : '';
+  value.textContent = upstreams + label + resolvers;
+}
+async function runDnsDiagnostics() {
+  const domainsField = document.getElementById('dns-domains');
+  const quickField = document.getElementById('dns-quick');
+  const status = document.getElementById('dns-status');
+  const recommendation = document.getElementById('dns-recommendation');
+  const table = document.getElementById('dns-provider-table');
+  const domains = (domainsField && domainsField.value) ? domainsField.value : 'google.com,github.com,docker.com,pypi.org,digikala.com,cloudflare.com';
+  const quick = quickField ? !!quickField.checked : true;
+  status.textContent = 'Running DNS diagnostics…';
+  recommendation.innerHTML = '';
+  const data = await get('/dns/compare?domains=' + encodeURIComponent(domains) + '&quick=' + (quick ? '1' : '0'));
+  if (!data || !Array.isArray(data.providers)) {
+    status.textContent = 'DNS diagnostics returned no data.';
+    return;
+  }
+  latestDnsResults = data;
+  selectedDnsPair = null;
+  document.getElementById('dns-selected-pair').hidden = true;
+  document.getElementById('dns-command-preview').hidden = true;
+  document.getElementById('dns-use-recommended-pair').disabled = !data.recommended_pair;
+  document.getElementById('dns-apply').disabled = true;
+  const current = (data.current_dns || []).join(', ') || 'none';
+  renderCurrentDnsSetup(data.current_dns || [], data.current_dns_source || 'dnsmasq configuration');
+  status.textContent = data.current_dns_source
+    ? 'Current dnsmasq upstreams: ' + current + '. Source: ' + data.current_dns_source + '.'
+    : 'Current dnsmasq upstreams were not detected.';
+  const best = data.best_provider || data.providers[0] || null;
+  if (best) {
+    recommendation.innerHTML = '<p class="muted"><strong>Best candidate:</strong> ' + best.provider + ' &mdash; ' + best.success_rate + ' success, median ' + best.median_latency + ' ms.</p>' +
+      '<p class="muted">Recommendation confidence is limited to the measured dataset and should not override a confirmed routing or ISP issue.</p>';
+  }
+  fill('#dns-provider-table', data.providers.map(provider => [
+    provider.provider,
+    (provider.addresses || [])[0] || '—',
+    (provider.addresses || [])[1] || '—',
+    String(provider.median_latency || 'n/a') + ' ms',
+    (provider.success_rate || 0) * 100 + '%',
+    provider.timeouts || 0,
+  ]), 6);
+}
 Promise.all([get('/summary'), get('/interfaces'), get('/routes'), get('/dns'), get('/ports'), get('/conntrack'), get('/neighbors')])
   .then(([sum, ifs, rts, dns, ports, ct, nbrs]) => {
     document.getElementById('summary').innerHTML =
@@ -94,6 +202,7 @@ Promise.all([get('/summary'), get('/interfaces'), get('/routes'), get('/dns'), g
       sum.listening_ports + ' listening sockets, DNS: ' +
       ((sum.dns_servers || []).join(', ') || 'none') +
       '</p><p class="muted">Source: ' + (sum.source || 'unknown') + '.</p>';
+    renderCurrentDnsSetup(dns.servers || [], dns.source, dns.resolver_servers || []);
     fill('#ifaces', ifs.map(i => [i.name, i.state, i.mac, (i.ipv4 || []).join(', '), (i.ipv6 || []).join(', '), i.mtu]), 6);
     fill('#routes', rts.map(r => [r.dst || 'default', r.gateway, r.dev, r.family]), 4);
     document.getElementById('dns').innerHTML =
@@ -115,6 +224,95 @@ Promise.all([get('/summary'), get('/interfaces'), get('/routes'), get('/dns'), g
     fill('#ct', ct.slice(0, 200).map(c => [c.proto, c.state, c.src_ip + ':' + c.src_port, c.dst_ip + ':' + c.dst_port]), 4);
     if (ct.length > 200) document.getElementById('ct-note').textContent = 'Showing the first 200 of ' + ct.length + ' tracked connections.';
     else if (!ct.length) document.getElementById('ct-note').textContent = 'This kernel exposes no conntrack table, so there is nothing to list.';
+    const runButton = document.getElementById('dns-run');
+    if (runButton) runButton.addEventListener('click', runDnsDiagnostics);
+    function makeHostApplyCommand(primaryIp, secondaryIp) {
+      return [
+        'sudo cp /etc/dnsmasq.conf "/etc/dnsmasq.conf.bak.$(date +%Y%m%d-%H%M%S)" && sudo python3 - <<\'PY\'',
+        'from pathlib import Path',
+        'p = Path("/etc/dnsmasq.conf")',
+        'text = p.read_text()',
+        'lines = []',
+        'replaced = False',
+        'for line in text.splitlines():',
+        '    s = line.strip()',
+        '    if s.startswith("server=") and not s.startswith("server=/"):',
+        '        if not replaced:',
+        '            lines.extend(["server=' + primaryIp + '", "server=' + secondaryIp + '"])',
+        '            replaced = True',
+        '        continue',
+        '    lines.append(line)',
+        'if not replaced:',
+        '    lines.extend(["", "server=' + primaryIp + '", "server=' + secondaryIp + '"])',
+        'p.write_text("\\n".join(lines) + "\\n")',
+        'PY',
+        'sudo dnsmasq --test && sudo systemctl restart dnsmasq',
+      ].join('\n');
+    }
+    const selectPairButton = document.getElementById('dns-use-recommended-pair');
+    if (selectPairButton) {
+      selectPairButton.addEventListener('click', () => {
+        if (!latestDnsResults || !latestDnsResults.recommended_pair) return;
+        selectedDnsPair = latestDnsResults.recommended_pair;
+        const pair = selectedDnsPair;
+        const box = document.getElementById('dns-selected-pair');
+        box.textContent = 'Selected proposal only — Primary: ' + pair.primary.provider + ' (' + pair.primary.address + '); Secondary: ' + pair.secondary.provider + ' (' + pair.secondary.address + '). No system DNS settings have changed.';
+        box.hidden = false;
+        document.getElementById('dns-apply-command').value = makeHostApplyCommand(pair.primary.address, pair.secondary.address);
+        document.getElementById('dns-command-preview').hidden = false;
+        document.getElementById('dns-apply').disabled = false;
+      });
+    }
+    const applyButton = document.getElementById('dns-apply');
+    if (applyButton) {
+      applyButton.addEventListener('click', async () => {
+        if (!selectedDnsPair) {
+          document.getElementById('dns-status').textContent = 'Select a measured pair first.';
+          return;
+        }
+        const addresses = [selectedDnsPair.primary.address, selectedDnsPair.secondary.address];
+        const confirmation = 'Apply DNS upstreams?\n\nPrimary: ' + addresses[0] + '\nSecondary: ' + addresses[1] + '\n\nThe current dnsmasq config will be backed up. Per-domain rules are preserved. A rollback command will be shown.';
+        if (!window.confirm(confirmation)) return;
+        const response = await fetch(API + '/dns/apply', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            provider: selectedDnsPair.primary.provider + ' + ' + selectedDnsPair.secondary.provider,
+            addresses: addresses,
+            confirm: true
+          })
+        });
+        const payload = await response.json();
+        const resultBox = document.getElementById('dns-apply-result');
+        resultBox.hidden = false;
+        document.getElementById('dns-apply-message').textContent = payload.status === 'applied'
+          ? 'DNS applied: ' + payload.addresses.join(', ') + '. dnsmasq state: ' + payload.dnsmasq_state + '. ' + payload.verification
+          : 'DNS was not confirmed as applied: ' + (payload.error || 'unknown error') + (payload.automatic_rollback ? ' ' + payload.automatic_rollback : '');
+        document.getElementById('dns-rollback-commands').textContent = (payload.rollback_commands || []).join('\n');
+        const rollbackButton = document.getElementById('dns-rollback');
+        rollbackButton.hidden = payload.status !== 'applied';
+        rollbackButton.dataset.backupId = payload.backup_id || '';
+        runDnsDiagnostics();
+      });
+    }
+    const rollbackButton = document.getElementById('dns-rollback');
+    if (rollbackButton) {
+      rollbackButton.addEventListener('click', async () => {
+        const backupId = rollbackButton.dataset.backupId;
+        if (!backupId || !window.confirm('Restore the exact DNS configuration saved before this change?')) return;
+        const response = await fetch(API + '/dns/rollback', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({backup_id: backupId, confirm: true})
+        });
+        const payload = await response.json();
+        document.getElementById('dns-apply-message').textContent = payload.status === 'rolled-back'
+          ? 'Previous DNS configuration restored. dnsmasq state: ' + payload.dnsmasq_state + '.'
+          : 'Rollback failed: ' + (payload.error || 'unknown error');
+        runDnsDiagnostics();
+      });
+    }
+    runDnsDiagnostics();
   })
   .catch(err => {
     document.getElementById('summary').innerHTML = '<p class="conn-error">Could not load network data: ' + err.message + '</p>';

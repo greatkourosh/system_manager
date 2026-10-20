@@ -16,6 +16,15 @@
     <input type="password" id="lockCode" placeholder="access code" autocomplete="off" required>
     <button type="submit">Unlock</button>
   </form>
+  <div class="lock-help">
+    <strong>How to get the access code</strong>
+    <p class="muted">From the project directory, run this command in a terminal. Click the box to copy it:</p>
+    <div class="lock-command" data-copy>
+      <input id="access-code-command" type="text" readonly aria-label="Command to get the access code" value="docker compose exec system-manager cat /data/access-code">
+      <small class="muted">Click to copy</small>
+    </div>
+    <p class="muted">The code changes after each successful login.</p>
+  </div>
   <small class="muted lock-error" id="lockError"></small>
 </div>
 {% endif %}

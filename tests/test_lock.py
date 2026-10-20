@@ -9,6 +9,7 @@ import os
 import re
 import tempfile
 import unittest
+from urllib.parse import parse_qs, urlsplit
 
 from system_manager import create_app
 from system_manager.organizer import is_available as organizer_available
@@ -35,12 +36,21 @@ class LockedModuleTests(unittest.TestCase):
             with self.subTest(path=path):
                 response = self.client.get(path)
                 self.assertEqual(response.status_code, 302)
-                self.assertTrue(response.headers["Location"].endswith("/"))
+                location = urlsplit(response.headers["Location"])
+                self.assertEqual(location.path, "/")
+                self.assertEqual(parse_qs(location.query).get("next"), [path])
+
+    def test_network_redirect_remembers_requested_page_for_unlock(self):
+        response = self.client.get("/network/")
+        self.assertEqual(response.status_code, 302)
+        query = parse_qs(urlsplit(response.headers["Location"]).query)
+        self.assertEqual(query.get("next"), ["/network/"])
 
     def test_inventory_writes_are_blocked_when_locked(self):
         for path in ["/inventory/items", "/inventory/builds"]:
             with self.subTest(path=path):
-                self.assertEqual(self.client.post(path, json={"name": "x"}).status_code, 302)
+                self.assertEqual(self.client.post(
+                    path, json={"name": "x"}).status_code, 302)
         item = self.client.post("/inventory/items", json={"name": "x"})
         self.assertNotEqual(item.status_code, 201)
         listed = self.client.get("/inventory/items",
@@ -53,6 +63,12 @@ class LockedModuleTests(unittest.TestCase):
                                    headers={"Accept": "application/json"})
         self.assertEqual(response.status_code, 401)
         self.assertIn("error", response.get_json())
+
+    def test_unlock_script_only_redirects_to_same_origin(self):
+        script = self.client.get("/static/app.js").get_data(as_text=True)
+        self.assertIn('new URL(next, window.location.origin)', script)
+        self.assertIn('target.origin === window.location.origin', script)
+        self.assertIn('window.location.replace', script)
 
     @unittest.skipUnless(organizer_available(), "organizer data directory not present")
     def test_organizer_redirects_when_locked(self):
@@ -74,7 +90,8 @@ class UnlockedModuleTests(unittest.TestCase):
         self.client.post("/api/login", json={"code": "code"})
 
     def test_inventory_is_reachable_after_login(self):
-        created = self.client.post("/inventory/items", json={"name": "Monitor"})
+        created = self.client.post(
+            "/inventory/items", json={"name": "Monitor"})
         self.assertEqual(created.status_code, 201)
         self.assertEqual(self.client.get("/inventory/").status_code, 200)
         listed = self.client.get("/inventory/items",
@@ -84,7 +101,8 @@ class UnlockedModuleTests(unittest.TestCase):
 
     @unittest.skipUnless(organizer_available(), "organizer data directory not present")
     def test_organizer_is_reachable_after_login(self):
-        self.assertIn(self.client.get("/organizer/").status_code, (200, 303, 307))
+        self.assertIn(self.client.get(
+            "/organizer/").status_code, (200, 303, 307))
 
 
 class OrganizerUrlTests(unittest.TestCase):
@@ -109,7 +127,8 @@ class OrganizerUrlTests(unittest.TestCase):
     def test_api_map_is_prefixed(self):
         html = self._html("/organizer/")
         urls = dict(re.findall(r"'(api/[\w/-]+)': \"([^\"]+)\"", html))
-        self.assertTrue(urls, "base.html should render the U map of API endpoints")
+        self.assertTrue(
+            urls, "base.html should render the U map of API endpoints")
         for endpoint, url in urls.items():
             with self.subTest(endpoint=endpoint):
                 self.assertEqual(url, "/organizer/" + endpoint)
@@ -129,7 +148,8 @@ class OrganizerUrlTests(unittest.TestCase):
         for page in ("", "scan", "music", "music/tags", "folders", "select",
                      "skipped", "cleanup", "programs", "videos"):
             with self.subTest(page=page):
-                self.assertEqual(self.client.get(f"/organizer/{page}").status_code, 200)
+                self.assertEqual(self.client.get(
+                    f"/organizer/{page}").status_code, 200)
 
     def test_api_map_is_defined_before_any_page_uses_it(self):
         """base.html's own <script> sits after {% block content %}, so a page's
@@ -140,9 +160,10 @@ class OrganizerUrlTests(unittest.TestCase):
             html = self._html(f"/organizer/{page}")
             defined = html.find("const U = {")
             uses = [i for i in (html.find("fetch(U["), html.find("post(U["),
-                                 html.find("subPost(U[")) if i != -1]
+                                html.find("subPost(U[")) if i != -1]
             with self.subTest(page=page):
-                self.assertNotEqual(defined, -1, "base.html should render the U map")
+                self.assertNotEqual(
+                    defined, -1, "base.html should render the U map")
                 self.assertTrue(uses, f"/organizer/{page} should call the API")
                 self.assertLess(defined, min(uses),
                                 "U must be defined before any page script runs")
@@ -154,8 +175,10 @@ class OrganizerUrlTests(unittest.TestCase):
                      "skipped", "cleanup", "programs", "videos"):
             for attr, url in re.findall(r'\b(href|action|src)=(?:"([^"]*)")', self._html(f"/organizer/{page}")):
                 with self.subTest(page=page, url=url):
-                    self.assertNotIn("url_for", url, "unrendered url_for left in output")
-                    self.assertTrue(url.startswith(("/", "http", "#")), f"bad {attr}: {url!r}")
+                    self.assertNotIn(
+                        "url_for", url, "unrendered url_for left in output")
+                    self.assertTrue(url.startswith(
+                        ("/", "http", "#")), f"bad {attr}: {url!r}")
 
     def test_api_calls_are_syntactically_valid(self):
         """fetch(U['x'], {...}) not fetch(U['x', {...}]) or U['x']] -- both parse
@@ -163,7 +186,8 @@ class OrganizerUrlTests(unittest.TestCase):
         for page in ("music/tags", "folders", "select", "skipped", "videos"):
             html = self._html(f"/organizer/{page}")
             with self.subTest(page=page):
-                self.assertNotRegex(html, r"\b(?:fetch|post)\(U\['[^']*'(?=[,;])")
+                self.assertNotRegex(
+                    html, r"\b(?:fetch|post)\(U\['[^']*'(?=[,;])")
                 self.assertNotRegex(html, r"U\['[^']*'\]\]")
 
     def test_every_api_key_used_is_defined(self):
@@ -189,7 +213,8 @@ class OrganizerUrlTests(unittest.TestCase):
         for page in ("music/tags", "folders", "select", "skipped", "videos"):
             for callee, path in re.findall(r"\b(\w+)\('(/api/[^']*)'", self._html(f"/organizer/{page}")):
                 with self.subTest(page=page, callee=callee):
-                    self.fail(f"unprefixed {callee}('{path}') — use U['{path.lstrip('/')}'] instead")
+                    self.fail(
+                        f"unprefixed {callee}('{path}') — use U['{path.lstrip('/')}'] instead")
 
     def test_unused_rewriter_helpers_are_gone(self):
         """The wrapper case: a helper wrapping fetch() used to be missed by a
@@ -198,7 +223,8 @@ class OrganizerUrlTests(unittest.TestCase):
         path a page can call is a url_for result, so this just pins the
         ＋sub button specifically."""
         html = self._html("/organizer/videos")
-        self.assertIn("'api/subtitles/queue': \"/organizer/api/subtitles/queue\"", html)
+        self.assertIn(
+            "'api/subtitles/queue': \"/organizer/api/subtitles/queue\"", html)
         self.assertNotIn("fetch('/api/", html)
 
 
@@ -216,9 +242,15 @@ class UnlockSurfaceTests(unittest.TestCase):
         app = make_app()
         client = app.test_client()
         self.assertEqual(client.get("/").status_code, 200)
+        dashboard = client.get("/").get_data(as_text=True)
+        self.assertIn("How to get the access code", dashboard)
+        self.assertIn('id="access-code-command"', dashboard)
+        self.assertIn(
+            "docker compose exec system-manager cat /data/access-code", dashboard)
         self.assertEqual(client.get("/health").status_code, 200)
         self.assertEqual(client.get("/static/app.js").status_code, 200)
-        self.assertEqual(client.post("/api/login", json={"code": "code"}).status_code, 200)
+        self.assertEqual(client.post(
+            "/api/login", json={"code": "code"}).status_code, 200)
 
 
 if __name__ == "__main__":

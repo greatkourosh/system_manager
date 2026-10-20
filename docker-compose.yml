@@ -1,6 +1,10 @@
 services:
   system-manager:
-    build: .
+    build:
+      context: .
+      args:
+        APP_UID: ${UID:-1000}
+        APP_GID: ${GID:-1000}
     ports:
       - "4000:4000"
     container_name: system-manager
@@ -29,6 +33,9 @@ services:
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
       - /etc:/host/etc:ro
+      # The DNS helper may update only this dnsmasq config file; the rest of
+      # host /etc remains read-only in the container.
+      - /etc/dnsmasq.conf:/host/etc/dnsmasq.conf:rw
       - /run/user:/run/user:ro
       - /var/run/dbus:/var/run/dbus:ro
       - /sys/class/dmi:/sys/class/dmi:ro
@@ -51,6 +58,9 @@ services:
       # above) and hands tag and folder-fix proposals back through
       # ./commands_to_run, which the host-side scripts then apply.
       - ./commands_to_run:/app/commands_to_run
+      # Tag writes go to the music files themselves. The same host path is used
+      # inside the container so media_path's rewrite needs no change.
+      - /media/kourosh/Multimedia/Music:/media/kourosh/Multimedia/Music
     environment:
       # Auth is on unless a local .env explicitly opts out. Compose reads .env
       # from this directory for interpolation, so dropping DISABLE_AUTH=1 in

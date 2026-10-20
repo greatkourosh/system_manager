@@ -23,8 +23,11 @@ import shutil
 import socket
 import tempfile
 import unittest
+from unittest import mock
 
 from system_manager import create_app
+from system_manager.network_manager import dns as netdns
+from system_manager.network_manager import dnsmasq_helper as dnsmasq_helper
 from system_manager.network_manager import hostnet
 
 
@@ -155,8 +158,10 @@ class HexDecodeTests(unittest.TestCase):
 
     def test_ipv6_sockets_are_little_endian_words(self):
         # systemd-resolved's stub, exactly as the kernel writes it.
-        self.assertEqual(hostnet.decode_ipv6("0000000000000000FFFF00000100007F"), "::ffff:127.0.0.1")
-        self.assertEqual(hostnet.decode_ipv6("00000000000000000000000000000000"), "::")
+        self.assertEqual(hostnet.decode_ipv6(
+            "0000000000000000FFFF00000100007F"), "::ffff:127.0.0.1")
+        self.assertEqual(hostnet.decode_ipv6(
+            "00000000000000000000000000000000"), "::")
 
     def test_if_inet6_is_network_order_not_little_endian(self):
         """The two orderings disagree; using the wrong one corrupts every address."""
@@ -185,7 +190,8 @@ class SocketStateTests(unittest.TestCase):
 class ListeningPortTests(unittest.TestCase):
     def test_only_listen_rows_are_reported(self):
         with FakeHost(tcp=TCP, udp=UDP) as host:
-            tcp = [row for row in hostnet.listening_ports() if row["proto"] == "TCP"]
+            tcp = [row for row in hostnet.listening_ports() if row["proto"]
+                   == "TCP"]
             self.assertEqual([row["local_port"] for row in tcp], [0x9161],
                              "the ESTABLISHED row must not be listed")
 
@@ -198,13 +204,15 @@ class ListeningPortTests(unittest.TestCase):
 
     def test_ipv6_socket_keeps_no_brackets_or_merged_port(self):
         with FakeHost(tcp6=TCP6):
-            row = [r for r in hostnet.listening_ports() if r["proto"] == "TCP"][0]
+            row = [r for r in hostnet.listening_ports() if r["proto"]
+                   == "TCP"][0]
             self.assertEqual(row["local_ip"], "::ffff:127.0.0.1")
             self.assertEqual(row["local_port"], 0x90A7)
 
     def test_udp_rows_have_no_state_field_so_all_are_included(self):
         with FakeHost(udp=UDP):
-            udp = [row for row in hostnet.listening_ports() if row["proto"] == "UDP"]
+            udp = [row for row in hostnet.listening_ports() if row["proto"]
+                   == "UDP"]
             self.assertEqual([row["local_port"] for row in udp], [0x14E9])
 
     def test_unknown_owner_is_none_not_a_guess(self):
@@ -216,7 +224,8 @@ class ListeningPortTests(unittest.TestCase):
         # our own processes, so attribution is partial by design -- but it is
         # partial, not absent, and this pins the part that does work.
         with FakeHost(tcp=TCP) as host:
-            host.process(4321, fds=[(7, "socket:[95532]")], exe="/usr/bin/clash")
+            host.process(
+                4321, fds=[(7, "socket:[95532]")], exe="/usr/bin/clash")
             row = hostnet.listening_ports()[0]
         self.assertEqual(row["pid"], 4321)
         self.assertEqual(row["exe"], "/usr/bin/clash")
@@ -243,21 +252,25 @@ class RouteTests(unittest.TestCase):
         # 00000000 -> /0, 0000FFFF -> /16, 00FFFFFF -> /24. The mask is a
         # little-endian word, so this is where a byte-order slip shows up.
         with FakeHost(route=ROUTE, fib_trie=FIB_TRIE):
-            found = {row["dev"]: row for row in hostnet.routes() if row["family"] == "inet"}
+            found = {row["dev"]: row for row in hostnet.routes()
+                     if row["family"] == "inet"}
         self.assertEqual(found["eno1"]["dst"], "0.0.0.0/0")
         self.assertEqual(found["vmnet8"]["dst"], "172.16.180.0/24")
         self.assertEqual(found["docker0"]["dst"], "172.17.0.0/16")
 
     def test_default_route_reports_its_gateway(self):
         with FakeHost(route=ROUTE):
-            default = [r for r in hostnet.routes() if r["dst"] == "0.0.0.0/0"][0]
+            default = [r for r in hostnet.routes() if r["dst"] ==
+                       "0.0.0.0/0"][0]
             self.assertEqual(default["gateway"], "192.168.1.1")
             self.assertEqual(default["dev"], "eno1")
 
     def test_connected_route_has_no_gateway(self):
         with FakeHost(route=ROUTE):
-            connected = [r for r in hostnet.routes() if r["dst"] == "172.17.0.0/16"][0]
-            self.assertEqual(connected["gateway"], "", "RTF_UP without RTF_GATEWAY has none")
+            connected = [r for r in hostnet.routes() if r["dst"] ==
+                         "172.17.0.0/16"][0]
+            self.assertEqual(connected["gateway"], "",
+                             "RTF_UP without RTF_GATEWAY has none")
 
     def test_ipv6_route_prefix_length_is_hex(self):
         with FakeHost(ipv6_route=IPV6_ROUTE):
@@ -292,14 +305,16 @@ class InterfaceTests(unittest.TestCase):
         # The fixture lists 172.17.0.1 twice; it must appear once.
         with FakeHost(route=ROUTE, fib_trie=FIB_TRIE) as host:
             host.interface("docker0")
-            docker0 = [i for i in hostnet.interfaces() if i["name"] == "docker0"][0]
+            docker0 = [i for i in hostnet.interfaces() if i["name"]
+                       == "docker0"][0]
         self.assertEqual(docker0["ipv4"], ["172.17.0.1"])
 
     def test_subnet_addresses_are_not_reported_as_addresses(self):
         """fib_trie marks 127.0.0.0 LOCAL under a /8; only the /32 is real."""
         with FakeHost(route=ROUTE, fib_trie=FIB_TRIE) as host:
             host.interface("lo")
-            loopback = [i for i in hostnet.interfaces() if i["name"] == "lo"][0]
+            loopback = [i for i in hostnet.interfaces() if i["name"]
+                        == "lo"][0]
         self.assertNotIn("127.0.0.0", loopback["ipv4"])
 
     def test_ipv6_address_keeps_its_interface(self):
@@ -308,11 +323,13 @@ class InterfaceTests(unittest.TestCase):
             host.interface("br-983782549ddc")
             by_name = {i["name"]: i for i in hostnet.interfaces()}
         self.assertEqual(by_name["lo"]["ipv6"], ["::1"])
-        self.assertEqual(by_name["br-983782549ddc"]["ipv6"], ["fe80::6cab:bfff:fe14:856f"])
+        self.assertEqual(by_name["br-983782549ddc"]
+                         ["ipv6"], ["fe80::6cab:bfff:fe14:856f"])
 
     def test_mac_mtu_and_state_come_from_sysfs(self):
         with FakeHost(route=ROUTE, fib_trie=FIB_TRIE) as host:
-            host.interface("eno1", mac="10:7c:61:79:15:3a", mtu="9000", state="up")
+            host.interface("eno1", mac="10:7c:61:79:15:3a",
+                           mtu="9000", state="up")
             eno1 = [i for i in hostnet.interfaces() if i["name"] == "eno1"][0]
         self.assertEqual(eno1["mac"], "10:7c:61:79:15:3a")
         self.assertEqual(eno1["mtu"], 9000)
@@ -332,7 +349,8 @@ class ScopeTests(unittest.TestCase):
     def test_pid_1_net_is_preferred_over_proc_net(self):
         """Under pid: host, /proc/1/net is the host and /proc/net is ours."""
         with FakeHost(route=ROUTE):
-            self.assertTrue(hostnet.net_dir().endswith(os.path.join("proc", "1", "net")))
+            self.assertTrue(hostnet.net_dir().endswith(
+                os.path.join("proc", "1", "net")))
             self.assertEqual(hostnet.scoped_label(), "the host")
 
     def test_missing_mounts_are_reported_not_guessed(self):
@@ -435,6 +453,83 @@ class NeighborTests(unittest.TestCase):
                 self.assertNotIn("HW", row["mac"])
 
 
+class DiagnosticLogicTests(unittest.TestCase):
+    def test_dns_response_parser_reads_answer_and_rcode(self):
+        reply = b"\x12\x34\x81\x80\x00\x01\x00\x01\x00\x00\x00\x00\x03www\x07example\x03com\x00\x00\x01\x00\x01\xc0\x0c\x00\x01\x00\x01\x00\x00\x00\x3c\x00\x04\x7f\x00\x00\x01"
+        parsed = netdns.parse_dns_response(reply)
+        self.assertEqual(parsed["rcode"], "NOERROR")
+        self.assertEqual(parsed["answers"], ["127.0.0.1"])
+
+    def test_dns_result_ranking_keeps_reliability_first(self):
+        ranked = netdns.rank_provider_results([
+            {"provider": "A", "success_rate": 0.8,
+                "median_latency": 15.0, "timeouts": 2, "errors": []},
+            {"provider": "B", "success_rate": 0.95,
+                "median_latency": 12.0, "timeouts": 0, "errors": []},
+        ])
+        self.assertEqual(ranked[0]["provider"], "B")
+        self.assertEqual(ranked[1]["provider"], "A")
+
+    def test_recommended_pair_uses_primary_ips_from_two_working_providers(self):
+        pair = netdns.select_recommended_pair([
+            {"provider": "Current DHCP / TCI", "addresses": ["127.0.0.1"],
+             "success_rate": 0, "timeouts": 6, "attempts": 6, "median_latency": 0},
+            {"provider": "Electro", "addresses": ["78.157.42.100", "78.157.42.101"],
+             "success_rate": 1, "timeouts": 0, "attempts": 6, "median_latency": 17},
+            {"provider": "Shecan", "addresses": ["178.22.122.100", "185.51.200.2"],
+             "success_rate": 1, "timeouts": 0, "attempts": 6, "median_latency": 18},
+        ])
+        self.assertEqual(pair, {
+            "primary": {"provider": "Electro", "address": "78.157.42.100"},
+            "secondary": {"provider": "Shecan", "address": "178.22.122.100"},
+        })
+
+    def test_recommended_pair_is_inconclusive_without_two_working_providers(self):
+        self.assertIsNone(netdns.select_recommended_pair([
+            {"provider": "Only", "addresses": ["1.1.1.1"],
+             "success_rate": 1, "timeouts": 0, "attempts": 1, "median_latency": 10},
+        ]))
+
+    def test_provider_summary_ignores_invalid_inputs(self):
+        self.assertEqual(netdns.normalise_provider_input(
+            {"provider": "bad", "addresses": "not-a-list"}), [])
+
+
+class DnsmasqHelperTests(unittest.TestCase):
+    def test_upstream_replacement_preserves_split_dns_and_other_options(self):
+        original = (
+            "conf-dir=/etc/dnsmasq.d/,*.conf\n"
+            "no-resolv\n"
+            "server=192.168.1.1\n"
+            "server=178.22.122.100\n"
+            "server=/workers.dev/1.1.1.1\n"
+            "listen-address=127.0.0.1\n"
+        )
+        updated = dnsmasq_helper.replace_global_upstreams(
+            original, ["8.8.8.8", "8.8.4.4"])
+        self.assertIn("server=8.8.8.8\nserver=8.8.4.4\n", updated)
+        self.assertIn("server=/workers.dev/1.1.1.1\n", updated)
+        self.assertIn("no-resolv\n", updated)
+        self.assertIn("listen-address=127.0.0.1\n", updated)
+        self.assertNotIn("server=192.168.1.1", updated)
+
+    def test_upstream_replacement_adds_global_servers_when_missing(self):
+        updated = dnsmasq_helper.replace_global_upstreams(
+            "no-resolv\nserver=/example.com/1.1.1.1\n",
+            ["9.9.9.9", "149.112.112.112"])
+        self.assertTrue(updated.endswith(
+            "server=9.9.9.9\nserver=149.112.112.112\n"))
+        self.assertIn("server=/example.com/1.1.1.1", updated)
+
+    def test_apply_accepts_only_two_distinct_public_dns_addresses(self):
+        self.assertEqual(dnsmasq_helper._validate_addresses(
+            ["8.8.8.8", "8.8.4.4"]), ["8.8.8.8", "8.8.4.4"])
+        for addresses in (["127.0.0.1", "8.8.8.8"],
+                          ["8.8.8.8", "8.8.8.8"], ["not-an-ip", "8.8.8.8"]):
+            with self.assertRaises(ValueError):
+                dnsmasq_helper._validate_addresses(addresses)
+
+
 class NetworkPageTests(unittest.TestCase):
     def setUp(self):
         self.app = make_app()
@@ -480,9 +575,24 @@ class NetworkPageTests(unittest.TestCase):
         page = self.client.get("/network/").get_data(as_text=True)
         self.assertIn("location.pathname.replace", page)
 
+    def test_page_has_dns_diagnostics_section(self):
+        page = self.client.get("/network/").get_data(as_text=True)
+        self.assertIn("DNS Diagnostics &amp; Optimizer", page)
+        self.assertIn("dns-diagnostics", page)
+        self.assertIn('id="dns-use-recommended-pair"', page)
+        self.assertIn('id="dns-selected-pair"', page)
+        self.assertIn('id="dns-command-preview"', page)
+        self.assertIn('id="dns-apply-command"', page)
+        self.assertIn('id="dns-rollback-command-template"', page)
+        self.assertIn('id="dns-current-setup"', page)
+        self.assertIn('Current host DNS', page)
+        self.assertIn("sudo cp /etc/dnsmasq.conf", page)
+        self.assertNotIn("system-manager-dns-helper apply", page)
+
     def test_page_says_where_the_data_came_from(self):
         """The summary is only trustworthy if it names the scope it read."""
-        body = json.loads(self.client.get("/network/summary").get_data(as_text=True))
+        body = json.loads(self.client.get(
+            "/network/summary").get_data(as_text=True))
         self.assertIn(body["source"], ("the host", "this host",
                                        "the container (no pid namespace)",
                                        "nothing (host mounts missing)"))
@@ -499,7 +609,8 @@ class NetworkApiTests(unittest.TestCase):
 
     def _get(self, name):
         response = self.client.get(f"/network/{name}")
-        self.assertEqual(response.status_code, 200, f"/network/{name} returned {response.status_code}")
+        self.assertEqual(response.status_code, 200,
+                         f"/network/{name} returned {response.status_code}")
         return json.loads(response.get_data(as_text=True))
 
     def test_summary_has_the_keys_the_page_reads(self):
@@ -510,9 +621,11 @@ class NetworkApiTests(unittest.TestCase):
 
     def test_listening_ports_parse_every_row(self):
         for port in self._get("ports"):
-            self.assertIsInstance(port["local_port"], int, f"bad port in {port}")
+            self.assertIsInstance(
+                port["local_port"], int, f"bad port in {port}")
             self.assertNotIn("]", port["local_ip"], f"bracket left in {port}")
-            self.assertNotIn("]:", port["local_ip"], f"port glued to the address in {port}")
+            self.assertNotIn("]:", port["local_ip"],
+                             f"port glued to the address in {port}")
 
     def test_list_rows_have_the_keys_the_page_reads(self):
         for row in self._get("interfaces"):
@@ -525,7 +638,102 @@ class NetworkApiTests(unittest.TestCase):
                 self.assertIn(key, row)
 
     def test_dns_is_an_object_with_servers(self):
-        self.assertIsInstance(self._get("dns")["servers"], list)
+        response = self._get("dns")
+        self.assertIsInstance(response["servers"], list)
+        self.assertIsInstance(response["resolver_servers"], list)
+        self.assertIn("source", response)
+
+    def test_dns_endpoint_distinguishes_upstreams_from_local_resolver(self):
+        state = {
+            "servers": ["78.157.42.100", "178.22.122.100"],
+            "source": "dnsmasq configuration: /etc/dnsmasq.conf",
+        }
+        with mock.patch(
+            "system_manager.network_manager.api.dnsmasq_config_state",
+            return_value=state,
+        ), mock.patch.object(
+            hostnet, "dns_servers", return_value=["127.0.0.1"]
+        ):
+            response = self._get("dns")
+        self.assertEqual(response["servers"], [
+                         "78.157.42.100", "178.22.122.100"])
+        self.assertEqual(response["resolver_servers"], ["127.0.0.1"])
+
+    def test_dnsmasq_config_reads_included_upstreams_and_skips_split_dns(self):
+        with FakeHost():
+            etc = os.path.join(os.environ["HOST_ROOT"], "etc")
+            os.makedirs(os.path.join(etc, "dnsmasq.d"))
+            with open(os.path.join(etc, "dnsmasq.conf"), "w") as handle:
+                handle.write(
+                    "conf-dir=/etc/dnsmasq.d/,*.conf\nno-resolv\n")
+            upstream_path = os.path.join(etc, "dnsmasq.d", "upstream.conf")
+            with open(upstream_path, "w") as handle:
+                handle.write(
+                    "server=78.157.42.100\n"
+                    "server=178.22.122.100\n"
+                    "server=/example.com/1.1.1.1\n"
+                )
+            state = netdns.dnsmasq_config_state()
+        self.assertEqual(state["servers"], ["78.157.42.100", "178.22.122.100"])
+        self.assertIn("/etc/dnsmasq.d/upstream.conf", state["source"])
+
+    def test_dns_apply_is_disabled_when_authentication_is_off(self):
+        response = self.client.post("/network/dns/apply", json={
+            "provider": "Electro + Shecan",
+            "addresses": ["78.157.42.100", "178.22.122.100"],
+            "confirm": True,
+        })
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("authentication is off", response.get_json()["error"])
+
+    def test_authenticated_dns_apply_and_rollback_use_the_fixed_helper(self):
+        directory = tempfile.mkdtemp(prefix="sm-network-dns-action-")
+        app = create_app({"DISABLE_AUTH": 0, "TESTING": True,
+                          "AUDIT_PATH": os.path.join(directory, "actions.db")})
+        security = app.config["SECURITY"]
+        security.credential = "network-dns-test-credential"
+        client = app.test_client()
+        login = client.post("/api/login", json={"code": security.credential})
+        self.assertEqual(login.status_code, 200)
+
+        applied = {
+            "status": "applied",
+            "addresses": ["8.8.8.8", "8.8.4.4"],
+            "backup_id": "dnsmasq-1792320000-a1b2c3d4.conf",
+            "dnsmasq_state": "active",
+            "verification": "config and service verified",
+            "rollback_command": "docker exec system-manager sudo -n helper rollback dnsmasq-1792320000-a1b2c3d4.conf",
+        }
+        rolled_back = {"status": "rolled-back", "dnsmasq_state": "active"}
+        with mock.patch(
+                "system_manager.network_manager.api.run_dnsmasq_helper",
+                side_effect=[applied, rolled_back]) as helper:
+            missing_confirmation = client.post("/network/dns/apply", json={
+                "provider": "Google", "addresses": ["8.8.8.8", "8.8.4.4"],
+            })
+            self.assertEqual(missing_confirmation.status_code, 400)
+            helper.assert_not_called()
+
+            apply_response = client.post("/network/dns/apply", json={
+                "provider": "Google", "addresses": ["8.8.8.8", "8.8.4.4"],
+                "confirm": True,
+            })
+            self.assertEqual(apply_response.status_code, 200)
+            apply_body = apply_response.get_json()
+            self.assertEqual(apply_body["status"], "applied")
+            self.assertTrue(any("sudo cp \"$(ls -t /etc/dnsmasq.conf.bak.* | head -n1)\"" in command
+                                for command in apply_body["rollback_commands"]))
+            self.assertEqual(helper.call_args_list[0].args,
+                             ("apply", ["8.8.8.8", "8.8.4.4"]))
+
+            rollback_response = client.post("/network/dns/rollback", json={
+                "backup_id": applied["backup_id"], "confirm": True,
+            })
+            self.assertEqual(rollback_response.status_code, 200)
+            self.assertEqual(rollback_response.get_json()
+                             ["status"], "rolled-back")
+            self.assertEqual(helper.call_args_list[1].args,
+                             ("rollback", applied["backup_id"]))
 
     def test_neighbors_have_the_keys_the_page_reads(self):
         for row in self._get("neighbors"):
@@ -541,6 +749,17 @@ class NetworkApiTests(unittest.TestCase):
                      "neighbors", ""):
             self.assertNotEqual(client.get(f"/network/{name}").status_code, 200,
                                 f"/network/{name} served without a session")
+        self.assertEqual(client.post("/network/dns/apply", headers={
+            "Accept": "application/json",
+        }, json={
+            "provider": "Google", "addresses": ["8.8.8.8", "8.8.4.4"],
+            "confirm": True,
+        }).status_code, 401)
+        self.assertEqual(client.post("/network/dns/rollback", headers={
+            "Accept": "application/json",
+        }, json={
+            "backup_id": "dnsmasq-1792320000-a1b2c3d4.conf", "confirm": True,
+        }).status_code, 401)
 
 
 if __name__ == "__main__":
