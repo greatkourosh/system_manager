@@ -5,6 +5,7 @@ sibling checkout's app.py in-process and rewriting the absolute paths in its
 HTML, because a second Flask app on the same interpreter has to be reached
 through a proxy. Now that the routes are a blueprint, the paths in these
 templates are simply right.
+import base64
 """
 import csv
 import hashlib
@@ -16,7 +17,8 @@ import shlex
 from collections import Counter
 from datetime import date
 
-from flask import Blueprint, Response, jsonify, render_template, request
+from flask import Blueprint, Response, jsonify, render_template, request, send_file
+from media_path import to_host_path
 
 from . import subtitle_queue
 
@@ -140,24 +142,125 @@ def scan_page():
         groups.append({**g, "copies": copies})
     return render_template("organizer/scan.html", s=summary, dups={"groups": groups[:200], "total": dups.get("total_groups", 0), "redundant": dups.get("total_redundant_bytes", 0)}, q=query)
 
+MUSIC_PAGE_SIZE = 48
+MUSIC_SORTS = {
+    "tracks": lambda a: -a["tracks"],
+    "size": lambda a: -a["bytes"],
+    "name": lambda a: a["name"].lower(),
+}
+
+def _music_parts(path):
+    parts = path.replace("\\", "/").split("/")
+    try:
+        i = next(i for i, p in enumerate(parts) if p.lower() == "music")
+    except StopIteration:
+        return None
+    return parts[i + 1:]
+
+def _music_artist(path):
+    rel = _music_parts(path)
+    if rel is None:
+        return "(unknown)"
+    return rel[0] if len(rel) > 1 else "(root)"
+
+def _music_folder(path):
+    parts = path.replace("\\", "/").split("/")
+    return "/".join(parts[:-1])
+
+def _music_folder_label(folder):
+    rel = _music_parts(folder)
+    return "/".join(rel) if rel else folder
+
+COVER_NAMES = ("folder.jpg", "cover.jpg", "front.jpg", "folder.png", "cover.png")
+
+MUSIC_ROOT = "/media/kourosh/Multimedia/Music"
+
+def _folder_cover(folder):
+    """Local cover image for an album folder, or None. Confined to MUSIC_ROOT."""
+    host = os.path.realpath(to_host_path(folder))
+    if not host.startswith(MUSIC_ROOT + os.sep) or not os.path.isdir(host):
+        return None
+    names = {n.lower(): n for n in os.listdir(host)}
+    for cand in COVER_NAMES:
+        if cand in names:
+            return os.path.join(host, names[cand])
+    return None
+
+def artist_image_path(name):
+    return os.path.join(DATA, "artist_images",
+                        hashlib.md5(name.encode("utf-8")).hexdigest() + ".b64")
+
+@bp.route("/api/music/artist-image")
+def api_music_artist_image():
+    p = artist_image_path(request.args.get("name", ""))
+    if not os.path.exists(p):
+        return "", 404
+    with open(p, encoding="utf-8") as f:
+        raw = base64.b64decode(f.read().strip())
+    resp = Response(raw, mimetype="image/jpeg")
+    resp.headers["Cache-Control"] = "public, max-age=86400"
+    return resp
+
+@bp.route("/api/music/folder-cover")
+def api_music_folder_cover():
+    path = _folder_cover(request.args.get("folder", ""))
+    if not path:
+        return "", 404
+    return send_file(path, max_age=86400)
+
 
 @bp.route("/music")
 def music_page():
+    tags_audit = load("music_tag_audit.json") or {}
+    untagged = {p["path"] for p in tags_audit.get("problems", [])}
     catalog = load("music_catalog.json") or []
     query = request.args.get("q", "").strip().lower()
-    if query:
-        catalog = [f for f in catalog if query in f["path"].lower()]
-    by_artist = {}
+    drive = request.args.get("drive", "all")
+    fmt = request.args.get("fmt", "all")
+    sort = request.args.get("sort", "tracks")
+    mode = request.args.get("mode", "artist")
+    key = request.args.get("key", "")
+    page = max(0, int(request.args.get("page", 0)))
+    group_of = _music_folder if mode == "folder" else _music_artist
+
+    drives = sorted({f["drive"] for f in catalog})
+    formats = sorted({f["ext"] for f in catalog})
+    if drive != "all":
+        catalog = [f for f in catalog if f["drive"] == drive]
+    if fmt != "all":
+        catalog = [f for f in catalog if f["ext"] == fmt]
+
+    by_key = {}
     for f in catalog:
-        parts = f["path"].replace("\\", "/").split("/")
-        try:
-            i = next(i for i, p in enumerate(parts) if p.lower() == "music")
-            artist = parts[i + 1] if i + 1 < len(parts) - 1 else "(root)"
-        except StopIteration:
-            artist = "(unknown)"
-        by_artist.setdefault(artist, []).append(f)
-    artists = sorted(by_artist.items(), key=lambda kv: -len(kv[1]))
-    return render_template("organizer/music.html", artists=artists[:100], total=len(catalog), q=query)
+        by_key.setdefault(group_of(f["path"]), []).append(f)
+
+    groups = []
+    for name, tracks in by_key.items():
+        if query and query not in name.lower():
+            continue
+        groups.append({
+            "key": name,
+            "label": _music_folder_label(name) if mode == "folder" else name,
+            "artist": _music_artist(tracks[0]["path"]),
+            "tracks": len(tracks),
+            "bytes": sum(t["size_bytes"] for t in tracks),
+            "untagged": sum(1 for t in tracks if t["path"] in untagged),
+            "formats": Counter(t["ext"] for t in tracks).most_common(3),
+        })
+    groups.sort(key=MUSIC_SORTS.get(sort, MUSIC_SORTS["tracks"]))
+    selected = sorted(by_key.get(key.replace("\\", "/"), []), key=lambda t: t["path"])[:300]
+
+    pages = max(1, (len(groups) + MUSIC_PAGE_SIZE - 1) // MUSIC_PAGE_SIZE)
+    page = min(page, pages - 1)
+    return render_template("organizer/music.html",
+                           groups=groups[page * MUSIC_PAGE_SIZE:(page + 1) * MUSIC_PAGE_SIZE],
+                           total=len(catalog), total_bytes=sum(f["size_bytes"] for f in catalog),
+                           artist_count=len({_music_artist(f["path"]) for f in catalog}),
+                           shown=len(groups),
+                           untagged_total=sum(1 for f in catalog if f["path"] in untagged),
+                           drives=drives, formats=formats, q=request.args.get("q", ""),
+                           drive=drive, fmt=fmt, sort=sort, mode=mode, key=key,
+                           selected=selected, page=page, pages=pages, tags_audit=bool(tags_audit))
 
 
 VIDEO_PAGE_SIZE = 36
@@ -1161,6 +1264,110 @@ def api_tags_propose():
         plan["entries"][path] = entry
     save_tag_plan(plan)
     return jsonify({"ok": True, "proposed": len(proposed), "plan_size": len(plan["entries"])})
+
+def _fill_years_from_musicbrainz(proposed, by_path):
+    """Replace a guessed (low) year with the MusicBrainz release year when it matches well."""
+    from . import mb_lookup
+    todo = []
+    for path, entry in proposed.items():
+        year = entry.get("fields", {}).get("year")
+        if year and year.get("confidence") == "low" and by_path.get(path, {}).get("year") in (None, ""):
+            todo.append({"path": path, "tags": {"artist": (entry["fields"].get("artist") or {}).get("value", ""),
+                                                "title": (entry["fields"].get("title") or {}).get("value", "")}})
+    if not todo:
+        return
+    found = mb_lookup.lookup_recordings(todo, len(todo))
+    for path, cand in found.items():
+        if cand.get("score", 0) < 70 or not cand.get("year"):
+            continue
+        proposed[path]["fields"]["year"] = {"value": cand["year"], "source": "musicbrainz",
+                                            "overwrite": False, "confidence": "med"}
+
+@bp.route("/api/music/fix-untagged", methods=["POST"])
+def api_music_fix_untagged():
+    """Propose, auto-accept and write tags for one artist/folder's untagged tracks.
+
+    Dry run unless the body sets dry=false. Writes only this group's entries to
+    their own fix list, never the shared tag_fix_list.json.
+    """
+    import contextlib
+    import io
+    import apply_music_tags
+    from . import tag_detect
+    body = request.get_json(force=True)
+    key = (body.get("key") or "").replace("\\", "/")
+    mode = body.get("mode", "artist")
+    if not key:
+        return jsonify({"ok": False, "error": "key required"}), 400
+    group_of = _music_folder if mode == "folder" else _music_artist
+    catalog = load("music_catalog.json") or []
+    audit = load("music_tag_audit.json") or {"problems": []}
+    by_path = _audit_by_path(audit)
+    paths = [f["path"] for f in catalog
+             if f["path"] in by_path and group_of(f["path"]).replace("\\", "/") == key]
+    if not paths:
+        return jsonify({"ok": False, "error": "no untagged tracks in this group"}), 400
+    if len(paths) > 5000:
+        return jsonify({"ok": False, "error": f"{len(paths)} tracks — max 5000 per fix"}), 400
+
+    plan = load_tag_plan()
+    catalog_mtime = {f["path"]: f.get("mtime") for f in catalog if f["path"] in by_path}
+    proposed = tag_detect.propose_for(
+        [{"path": p, "mtime": catalog_mtime.get(p)} for p in paths], by_path)
+    _fill_years_from_musicbrainz(proposed, by_path)
+    for path, entry in proposed.items():
+        old = plan["entries"].get(path, {})
+        entry["accepted"] = old.get("accepted", False)
+        entry["applied"] = old.get("applied", False)
+        plan["entries"][path] = entry
+    save_tag_plan(plan)
+
+    accepted = 0
+    for path in proposed:
+        cur = by_path.get(path) or {}
+        writable = [s for f, s in plan["entries"][path].get("fields", {}).items()
+                    if s.get("value") and not cur.get(f) and not s.get("overwrite")
+                    and s.get("confidence") in ("high", "med")]
+        if writable:
+            plan["entries"][path]["accepted"] = True
+            accepted += 1
+    save_tag_plan(plan)
+
+    if not accepted:
+        return jsonify({"ok": False, "error": "no track had a confident proposal — use the Music Tags page to review"}), 400
+    group_list = os.path.join(CMD_DIR, "tag_fix_group.json")
+    out_entries = []
+    for path, entry in proposed.items():
+        if not entry.get("accepted"):
+            continue
+        cur = by_path.get(path) or {}
+        tags, overwrites = {}, []
+        for f, spec in entry.get("fields", {}).items():
+            v = spec.get("value")
+            if not v or spec.get("confidence") not in ("high", "med") or (cur.get(f) and not spec.get("overwrite")):
+                continue
+            tags[f] = v
+            if cur.get(f):
+                overwrites.append(f)
+        if tags:
+            out_entries.append({"path": path, "tags": tags, "overwrites": overwrites,
+                                "ext": os.path.splitext(path)[1].lower()})
+    os.makedirs(CMD_DIR, exist_ok=True)
+    with open(group_list, "w", encoding="utf-8") as f:
+        json.dump({"generated": date.today().isoformat(), "count": len(out_entries),
+                   "entries": out_entries}, f, ensure_ascii=False, indent=1)
+    dry = body.get("dry", True)
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        apply_music_tags.apply(not dry, fix_list=group_list)
+    summary = buf.getvalue().strip().splitlines()[0]
+    m = re.search(r"(?:would-apply|applied)=(\d+)", summary)
+    count = int(m.group(1)) if m else 0
+    if not count:
+        return jsonify({"ok": False, "dry": dry, "error": "nothing to write: the files already have these tags, "
+                        "so the audit is out of date. Re-run the music tag audit, then try again.",
+                        "summary": summary}), 400
+    return jsonify({"ok": True, "dry": dry, "accepted": len(out_entries), "written": count, "summary": summary})
 
 
 @bp.route("/api/tags/set-entry", methods=["POST"])

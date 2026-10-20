@@ -31,7 +31,7 @@ def mb_get(url):
             time.sleep(2 ** (attempt + 1))
 
 
-def lookup(entries, limit):
+def lookup(entries, limit, write=True):
     # group by (artist, title) to avoid duplicate queries
     seen = {}
     for e in entries:
@@ -63,9 +63,11 @@ def lookup(entries, limit):
         r_year = r_date[:4] if r_date and r_date[:4].isdigit() else None
         for e in group:
             out[e["path"]] = {"score": score, "artist": r_artist, "album": r_album, "year": r_year}
-    with open(OUT, "w", encoding="utf-8") as f:
-        json.dump(out, f, ensure_ascii=False, indent=1)
-    print(f"wrote {len(out)} candidates -> data/mb_candidates.json")
+    if write:
+        with open(OUT, "w", encoding="utf-8") as f:
+            json.dump(out, f, ensure_ascii=False, indent=1)
+        print(f"wrote {len(out)} candidates -> data/mb_candidates.json")
+    return out
 
 
 if __name__ == "__main__":

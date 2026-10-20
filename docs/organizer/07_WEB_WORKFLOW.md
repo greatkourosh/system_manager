@@ -43,6 +43,30 @@ Workflow: **Auto-detect proposals** → review/edit → Accept → **Export fix 
 - Export writes `commands_to_run/tag_fix_list.json` + shows copyable dry-run/apply commands; apply re-checks each file's live tags and skips fields that became non-empty; log at `commands_to_run/tag_log.txt`.
 - E2E verified 2026-09-01: 91 Ebi files proposed → manual edit → export (321 existing-tag fields correctly guarded) → dry-run → real apply on 2 files → mutagen read-back confirmed → idempotent re-run (2 SKIPPED).
 
+## Music library (2026-10-13 — /music)
+**/music is a card library** of the 31,111 music tracks in `data/music_catalog.json`, in the shape of the video page: filters, sort, paging, and a per-group track list.
+
+- **Two grouping modes.** `?mode=artist` groups by the folder after `Music`; `?mode=folder` groups by the album directory. The same filters apply to both: search, drive, format, and sort (tracks / size / name). 48 groups per page.
+- **Card images.** Artist mode lazy-loads a photo from `data/artist_images/` via `/api/music/artist-image`; folder mode serves the album's local `folder.jpg` (or `cover.jpg` / `front.jpg`) via `/api/music/folder-cover`. The cover endpoint only serves files under `/media/kourosh/Multimedia/Music` — a path outside that root 404s.
+- **Artist photos** are fetched host-side by `artist_images.py`: MusicBrainz artist → Wikidata → P18 → a 300px Wikimedia Commons thumbnail, cached as base64 under `data/artist_images/`. Artists with no confident match are recorded in `data/artist_images_missing.json` so a rerun skips them.
+- **The untagged badge is a button.** It proposes tags for that group's untagged tracks, auto-accepts the confident ones, and writes them — see "Fix untagged tracks" below.
+
+### Fix untagged tracks (2026-10-13)
+Clicking an untagged badge posts to `/api/music/fix-untagged`, which does the whole chain for one artist or folder:
+
+1. Proposes tags from the path (`tag_detect.propose_for`).
+2. Looks up a **MusicBrainz release year** for any track whose year is only an mtime guess, and uses it when the match scores ≥ 70. `mb_lookup.py` lives inside the package because the image copies `system_manager/` wholesale; the root `musicbrainz_lookup.py` CLI still writes `data/mb_candidates.json` for the Music Tags page.
+3. Accepts a track when at least one field is high/med confidence, empty in the audit, and would not overwrite. A low-confidence field is dropped from the write, not used to veto the track.
+4. Writes the group's entries to its own `commands_to_run/tag_fix_group.json` — never the shared `tag_fix_list.json` — and runs `apply_music_tags.apply()`, which now takes the list path as an argument.
+5. **Dry run first, then a confirm, then the real write.** The button shows the dry-run summary and asks before touching any file.
+
+The container can write tags itself: it has the Music mount and `mutagen`. The dry run takes ~2 s per track that needs a year, because MusicBrainz allows one request per second.
+
+> A group whose files already carry the proposed tags is reported as "nothing to write" rather than queued. That normally means `data/music_tag_audit.json` is stale — re-run `python3 music_tag_audit.py` (host) and try again.
+
+### Tag audit fix (2026-10-14)
+`music_tag_audit.py` read WMA tags with `v[0].strip()`, but mutagen returns `ASFUnicodeAttribute` for that format, so every WMA file raised and was recorded as an error with no tags — 18 files looked untagged when they were fully tagged. The reader now converts with `str()` first. Re-running the audit dropped the reader errors from 21 to 3 and the "needs fix" count from 13,125 to 13,107.
+
 ## Phase 3 — Video library + subtitles (2026-09-02)
 **/videos is a poster-card library** (782 cards: 317 movies / 332 serials / 133 videos) parsed from folder names: `video_catalog.py` builds `data/video_library.json` (title/year/genres/rating/popularity, serial Sxx-of-yy, Limited flag). Subtitle badges per card: FA/EN present-or-missing (folder-listing based; unmarked subs assumed EN). Filters: section, genre, subtitle state (missing FA/EN/both), search; 36 cards/page; posters lazy-load from `/api/video/poster`.
 

@@ -31,7 +31,7 @@ def read_tags(path):
         return None
     def g(k):
         v = audio.get(k)
-        return v[0].strip() if v and v[0].strip() else None
+        return str(v[0]).strip() if v and str(v[0]).strip() else None
     return {
         "artist": g("artist"),
         "title": g("title"),
@@ -64,7 +64,7 @@ for i, f in enumerate(catalog):
         if tags is None:
             entry.update(status="unreadable", **{k: None for k in ("artist", "title", "album", "year", "genre")})
         else:
-            missing = [k for k, v in tags.items() if not v]
+            missing = [k for k, v in tags.items() if not v and k != "genre"]
             entry.update(status="ok" if not missing else "incomplete", **tags, missing=missing)
     except Exception as e:
         entry.update(status="error", error=str(e)[:120], **{k: None for k in ("artist", "title", "album", "year", "genre")})

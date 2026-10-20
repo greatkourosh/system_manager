@@ -18,8 +18,8 @@ FIX_LIST = os.path.join(BASE, "commands_to_run", "tag_fix_list.json")
 LOG = os.path.join(BASE, "commands_to_run", "tag_log.txt")
 
 
-def apply(apply_changes):
-    with open(FIX_LIST, encoding="utf-8") as f:
+def apply(apply_changes, fix_list=FIX_LIST):
+    with open(fix_list, encoding="utf-8") as f:
         payload = json.load(f)
     entries = payload.get("entries", [])
     mode = "APPLY" if apply_changes else "DRY-RUN"

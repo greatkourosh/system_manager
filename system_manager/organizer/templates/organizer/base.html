@@ -75,7 +75,10 @@ const U = {
   'api/tags/clear-plan': {{ url_for('organizer.organizer_api.api_tags_clear_plan') | tojson }},
   'api/tags/export': {{ url_for('organizer.organizer_api.api_tags_export') | tojson }},
   'api/tags/merge-mb': {{ url_for('organizer.organizer_api.api_tags_merge_mb') | tojson }},
-  'api/video/poster': {{ url_for('organizer.organizer_api.api_video_poster') | tojson }}
+  'api/video/poster': {{ url_for('organizer.organizer_api.api_video_poster') | tojson }},
+  'api/music/artist-image': {{ url_for('organizer.organizer_api.api_music_artist_image') | tojson }},
+  'api/music/folder-cover': {{ url_for('organizer.organizer_api.api_music_folder_cover') | tojson }},
+  'api/music/fix-untagged': {{ url_for('organizer.organizer_api.api_music_fix_untagged') | tojson }}
 };
 </script>
 <div class="container-fluid px-4">

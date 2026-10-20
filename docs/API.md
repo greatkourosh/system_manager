@@ -573,6 +573,49 @@ one `Promise.all` and one failure would blank the whole page.
 
 ---
 
+## Music Library
+
+### `GET /organizer/music`
+**Auth required.** The music library page: a card per artist or per album folder, with search, drive/format/sort filters, and paging.
+
+**Query parameters:** `q` (artist or folder substring), `drive` (a drive letter, or `all`), `fmt` (an extension such as `.mp3`, or `all`), `sort` (`tracks` | `size` | `name`), `mode` (`artist` | `folder`), `key` (the selected group, for the track list), `page` (0-based).
+
+`mode=artist` groups by the folder after `Music`; `mode=folder` groups by the album directory. 48 groups per page.
+
+### `GET /organizer/api/music/artist-image?name=…`
+**Auth required.** The cached artist photo as `image/jpeg`, or 404 when none is cached. Photos are fetched host-side by `artist_images.py` into `data/artist_images/`.
+
+### `GET /organizer/api/music/folder-cover?folder=…`
+**Auth required.** The album's local cover image (`folder.jpg`, `cover.jpg`, `front.jpg`, or the PNG equivalents), or 404.
+
+Only files under `/media/kourosh/Multimedia/Music` are served. The path is resolved and checked against that root, so a path outside it — including one that climbs out with `..` — returns 404 rather than the file.
+
+### `POST /organizer/api/music/fix-untagged`
+**Auth required.** Proposes, accepts and writes tag fixes for one artist or folder's untagged tracks.
+
+**Body:** `{"key": "No Clear Mind", "mode": "artist", "dry": true}`
+
+`key` is the group name as the page renders it (a backslash path for a folder, a plain name for an artist); `mode` is `artist` or `folder`; `dry` defaults to true.
+
+**Response:**
+```json
+{
+  "ok": true,
+  "dry": true,
+  "accepted": 18,
+  "written": 18,
+  "summary": "===== RUN END: would-apply=18 skipped=0 missing=0 failed=0 ====="
+}
+```
+
+The chain: propose from the path → look up a MusicBrainz release year for any track whose year is only an mtime guess (used when the match scores ≥ 70) → accept tracks with at least one high/med-confidence field that is empty and would not overwrite → write the group to `commands_to_run/tag_fix_group.json` → run `apply_music_tags.apply()` against that list.
+
+**`dry: true` writes nothing.** With `dry: false` the tags are written to the music files, which the container can do: it has the Music mount and `mutagen`. The button always dry-runs first and asks before the real write.
+
+**Errors:** `400` with `no untagged tracks in this group` when the group has none, `no track had a confident proposal` when nothing is confident enough to write, and `nothing to write: the files already have these tags…` when the audit is stale and the files already carry the proposed values.
+
+---
+
 ## Error Responses
 
 All errors return JSON:

@@ -1,23 +1,161 @@
 {% extends "organizer/base.html" %}
 {% block title %}Music{% endblock %}
 {% block content %}
-<h4 class="mb-3">Music <span class="text-muted small">{{ "{:,}".format(total) }} tracks</span></h4>
-<form class="row g-2 mb-3" method="get">
-  <div class="col-md-6"><input class="form-control" name="q" value="{{ q }}" placeholder="Search artist / track path…"></div>
-  <div class="col-auto"><button class="btn btn-dark">Search</button></div>
-</form>
-<div class="card p-3">
-<table class="table table-sm table-striped data-table">
-  <thead><tr><th>Artist / folder</th><th>Tracks</th><th>Size</th></tr></thead>
-  <tbody>
-  {% for artist, files in artists %}
-    <tr>
-      <td>{{ artist }}</td>
-      <td>{{ files|length }}</td>
-      <td>{{ files|sum(attribute='size_bytes')|fmt_size }}</td>
-    </tr>
-  {% endfor %}
-  </tbody>
-</table>
+<h4 class="mb-1">Music <span class="text-muted small">{{ "{:,}".format(total) }} tracks · {{ "{:,}".format(artist_count) }} artists · {{ total_bytes|fmt_size }}{% if untagged_total %} · {{ "{:,}".format(untagged_total) }} untagged{% endif %}</span></h4>
+
+<div class="card p-2 mb-3">
+  <div class="row g-2 align-items-center">
+    <div class="col-auto">
+      <div class="btn-group btn-group-sm" role="group">
+        <button class="btn {{ 'btn-dark' if mode=='artist' else 'btn-outline-secondary' }}" onclick="setMode('artist')">By artist</button>
+        <button class="btn {{ 'btn-dark' if mode=='folder' else 'btn-outline-secondary' }}" onclick="setMode('folder')">By folder</button>
+      </div>
+    </div>
+    <div class="col-md-3"><input id="filterBox" class="form-control form-control-sm" placeholder="Search {{ 'artist' if mode=='artist' else 'folder' }}..." value="{{ q }}"></div>
+    <div class="col-auto">
+      <select id="driveSel" class="form-select form-select-sm" onchange="applyFilter(0)">
+        <option value="all" {% if drive=='all' %}selected{% endif %}>All drives</option>
+        {% for d in drives %}<option value="{{ d }}" {% if drive==d %}selected{% endif %}>Drive {{ d }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="col-auto">
+      <select id="fmtSel" class="form-select form-select-sm" onchange="applyFilter(0)">
+        <option value="all" {% if fmt=='all' %}selected{% endif %}>All formats</option>
+        {% for e in formats %}<option value="{{ e }}" {% if fmt==e %}selected{% endif %}>{{ e }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="col-auto">
+      <select id="sortSel" class="form-select form-select-sm" onchange="applyFilter(0)">
+        <option value="tracks" {% if sort=='tracks' %}selected{% endif %}>Most tracks</option>
+        <option value="size" {% if sort=='size' %}selected{% endif %}>Largest first</option>
+        <option value="name" {% if sort=='name' %}selected{% endif %}>Name A–Z</option>
+      </select>
+    </div>
+    <div class="col-auto"><button class="btn btn-sm btn-dark" onclick="applyFilter(0)">Apply</button></div>
+    <div class="col-auto"><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('organizer.organizer_api.music_page') }}">Reset</a></div>
+    <div class="col-auto ms-auto text-muted small">{{ shown }} {{ 'artists' if mode=='artist' else 'folders' }} · page {{ page+1 }}/{{ pages }}</div>
+  </div>
 </div>
+
+{% if key %}
+<div class="card p-2 mb-3">
+  <div class="d-flex align-items-center mb-1">
+    <strong class="small text-truncate">{{ key }}</strong>
+    <button class="btn btn-sm btn-outline-secondary py-0 ms-2" onclick="openKey('')">close</button>
+    {% if tags_audit %}<a class="btn btn-sm btn-outline-primary py-0 ms-auto" href="{{ url_for('organizer.organizer_api.music_tags_page') }}?folder={{ key.split('/')[-1]|urlencode }}">Fix tags</a>{% endif %}
+  </div>
+  <div class="small text-muted" style="max-height: 16rem; overflow-y: auto;">
+    {% for t in selected %}
+      <div class="text-truncate" title="{{ t.path }}">{{ t.path.replace('\\', '/').split('/')[-1] }} <span class="text-muted">· {{ t.size_bytes|fmt_size }}</span></div>
+    {% else %}
+      <div>no tracks</div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<div class="row row-cols-2 row-cols-md-4 row-cols-xl-6 g-3">
+  {% for g in groups %}
+  <div class="col">
+    <div class="card h-100 music-card" data-key="{{ g.key }}" data-artist="{{ g.artist }}">
+      <div class="music-img-slot" data-mode="{{ mode }}" data-key="{{ g.key }}" data-artist="{{ g.artist }}">
+        <div class="music-ph d-flex align-items-center justify-content-center">
+          <span class="display-6">{{ (g.label.split('/')[-1] if mode=='folder' else g.label)[:1]|upper or '♪' }}</span>
+        </div>
+      </div>
+      <div class="card-body p-2">
+        <div class="fw-bold small text-truncate" title="{{ g.label }}">{{ g.label }}</div>
+        <div class="small text-muted">{{ "{:,}".format(g.tracks) }} tracks · {{ g.bytes|fmt_size }}</div>
+        <div class="small text-truncate text-muted">{% for ext, n in g.formats %}{{ ext }} {{ n }}{% if not loop.last %} · {% endif %}{% endfor %}</div>
+        <div class="mt-1">
+          {% if g.untagged %}
+          <button class="badge text-bg-warning border-0" onclick="fixUntagged(this.closest('.music-card').dataset.key)"
+                  title="Propose, accept and export tag fixes for these {{ g.untagged }} tracks. The host applies them with apply_music_tags.py --apply.">{{ g.untagged }} untagged · fix</button>
+          {% endif %}
+          <button class="btn btn-sm btn-outline-secondary py-0 ms-1" onclick="openKey(this.closest('.music-card').dataset.key)">tracks</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% else %}
+  <div class="col-12 text-muted">Nothing matches.</div>
+  {% endfor %}
+</div>
+
+<nav class="d-flex gap-2 align-items-center my-3">
+  {% if page > 0 %}<a class="btn btn-sm btn-outline-secondary" href="#" onclick="applyFilter({{ page-1 }});return false;">&larr; Prev</a>{% endif %}
+  <span class="text-muted small">page {{ page+1 }} / {{ pages }}</span>
+  {% if page+1 < pages %}<a class="btn btn-sm btn-outline-secondary" href="#" onclick="applyFilter({{ page+1 }});return false;">Next &rarr;</a>{% endif %}
+</nav>
+
+<script>
+function params() {
+  return new URLSearchParams(location.search);
+}
+
+function applyFilter(page) {
+  const p = params();
+  p.set('mode', {{ mode|tojson }});
+  p.set('q', document.getElementById('filterBox').value);
+  p.set('drive', document.getElementById('driveSel').value);
+  p.set('fmt', document.getElementById('fmtSel').value);
+  p.set('sort', document.getElementById('sortSel').value);
+  p.set('page', page);
+  location.search = p.toString();
+}
+
+function setMode(mode) {
+  const p = new URLSearchParams();
+  p.set('mode', mode);
+  location.search = p.toString();
+}
+
+async function fixUntagged(key) {
+  const mode = {{ mode|tojson }};
+  const post = async (dry) => {
+    const r = await fetch(U['api/music/fix-untagged'], {method: 'POST',
+      headers: {'Content-Type': 'application/json'}, body: JSON.stringify({key, mode, dry})});
+    const j = await r.json().catch(() => ({ok: false, error: 'HTTP ' + r.status}));
+    return j;
+  };
+  const dry = await post(true);
+  if (!dry.ok) { alert('Failed: ' + dry.error); return; }
+  if (!confirm(`Dry run: ${dry.accepted} tracks.\n${dry.summary}\n\nWrite these tags into the music files now?`)) return;
+  const real = await post(false);
+  if (!real.ok) { alert('Failed: ' + real.error); return; }
+  alert(real.summary);
+  location.reload();
+}
+
+function openKey(key) {
+  const p = params();
+  if (key) p.set('key', key); else p.delete('key');
+  location.search = p.toString();
+}
+
+document.getElementById('filterBox').addEventListener('keydown', e => {
+  if (e.key === 'Enter') applyFilter(0);
+});
+
+// Artist photo when mode is artist; folder cover (local folder.jpg etc.) when mode is folder.
+document.querySelectorAll('.music-img-slot').forEach(slot => {
+  const isFolder = slot.dataset.mode === 'folder';
+  const url = isFolder
+    ? U['api/music/folder-cover'] + '?folder=' + encodeURIComponent(slot.dataset.key)
+    : U['api/music/artist-image'] + '?name=' + encodeURIComponent(slot.dataset.artist);
+  fetch(url).then(r => r.ok ? r.blob() : null).then(b => {
+    if (!b) return;
+    const img = document.createElement('img');
+    img.className = 'card-img-top';
+    img.src = URL.createObjectURL(b);
+    slot.replaceChildren(img);
+  }).catch(() => {});
+});
+</script>
+
+<style>
+  .music-card { cursor: default; }
+  .music-ph { aspect-ratio: 1/1; background: linear-gradient(135deg, var(--bs-secondary-bg), var(--bs-tertiary-bg)); color: var(--bs-secondary-color); }
+  .music-card img { aspect-ratio: 1/1; object-fit: cover; width: 100%; }
+</style>
 {% endblock %}
