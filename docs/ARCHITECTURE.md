@@ -16,7 +16,7 @@ The canonical app is a **Flask application** (`system_manager/`) that mounts fea
 │  ├─ status.py      — live snapshot (imports server.snapshot)│
 │  ├─ auth.py        — login/session, approve→execute→audit   │
 │  │                  (services, NM profiles, Access code)     │
-│  ├─ organizer/     — media organizer blueprint (37 routes)   │
+│  ├─ organizer/     — media organizer blueprint (41 routes)   │
 │  │                  data read from the bind-mounted sibling   │
 │  ├─ inventory/     — hardware inventory blueprint + SQLite   │
 │  ├─ packages/      — host dpkg/apt indexes, read-only        │
@@ -268,12 +268,12 @@ index.html (served by /)
 | Contract    | Fixtures + mocks             | Malformed input, timeouts, permission errors, unavailable sensors |
 | Smoke       | Manual / browser             | Full UI flow, container mounts, real system data                  |
 
-Run: `cd tests && PYTHONPATH=<repo root> python3 -m unittest discover` (230 tests, ~4s).
+Run: `cd tests && PYTHONPATH=<repo root> python3 -m unittest discover` (277 tests, ~4s).
 **The interpreter must be 3.12+.** `server.valid_endpoint()` calls
 `port.is_integer()`, which is 3.12+; on 3.11 it takes the `except AttributeError`
 branch and returns `None` for every valid URL, which fails 8 connectivity tests
 and reads exactly like a DNS problem.
-Test modules: `test_server.py` (19 — collectors, cache and actions), `test_connectivity.py` (11 — config, scan cadence, endpoint validation, API auth), `test_flask_app.py` (17 — Flask auth, approval flow, subprocess env), `test_lock.py` (19 — module blueprint gating, and the organizer's rendered URLs: nav prefixes, the `U` endpoint map, and that no page still calls a bare `/api/…`), `test_inventory.py` (5 — store + API), `test_packages.py` (29 — version ordering, index parsing, the page), `test_notifier.py` (17 — condition derivation, announce-once, retry, API auth), `test_journal.py` (28 — entry parsing, filter safety, the mount-error path, auth), `test_thresholds.py` (24 — configurable notification thresholds), `test_tag_detect.py` (11 — music tag detection: the nested layout, genre needle boundaries, no placeholder fallback), `test_network.py` (50 — hostnet parsing (two IPv6 byte orders, longest-prefix attribution, `source` values), socket inode attribution, the ARP neighbour table, and the network page's script/markup agreement). These sum to 230.
+Test modules: `test_server.py` (19 — collectors, cache and actions), `test_connectivity.py` (11 — config, scan cadence, endpoint validation, API auth), `test_flask_app.py` (18 — Flask auth, approval flow, subprocess env), `test_lock.py` (21 — module blueprint gating, and the organizer's rendered URLs: nav prefixes, the `U` endpoint map, and that no page still calls a bare `/api/…`), `test_inventory.py` (5 — store + API), `test_packages.py` (29 — version ordering, index parsing, the page), `test_notifier.py` (17 — condition derivation, announce-once, retry, API auth), `test_journal.py` (28 — entry parsing, filter safety, the mount-error path, auth), `test_thresholds.py` (24 — configurable notification thresholds), `test_tag_detect.py` (11 — music tag detection: the nested layout, genre needle boundaries, no placeholder fallback), `test_network.py` (63 — hostnet parsing (two IPv6 byte orders, longest-prefix attribution, `source` values), socket inode attribution, the ARP neighbour table, and the network page's script/markup agreement), `test_music_page.py` (16 — the Music library's grouping modes, filters and paging, the folder-cover endpoint's refusal to serve a path outside the Music root, and the untagged fixer's accept rule), `test_music_tags_needs_only.py` (6 — the tags page's folder filter). These sum to 268, and the two host-side modules below bring the suite to 277.
 
 The organizer's host-side tests (`test_fetch_subtitles.py`, `test_video_catalog.py`, `test_tag_detect.py`) live in `tests/` with the rest and run in the same suite.
 

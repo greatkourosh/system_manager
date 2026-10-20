@@ -95,7 +95,7 @@ Superseded: music_folder_fix.py, apply_music_folder_fix.py, name_fix.py, apply_n
 `python tests/test_app.py` — 73 checks against the live server (pages, theme, APIs, selection, exports, skip rules, tag-plan workflow, universal folder-fix round-trip, UI markers). Restores selection/skip/plan/folder-fix state afterward. Latest: 2× green on 2026-09-02 after the universal folder-fixer refactor.
 
 ## Data files
-`data/scan_summary.json` · `catalog_full.json` · `{music,video,programs,disk_images}_catalog.json` · `duplicates.json` · `cleanup_proposal.json` · `selection_state.json` · `skip_rules.json` · `music_tag_audit.json`
+`data/scan_summary.json` · `catalog_full.json` · `{music,video,programs,disk_images}_catalog.json` · `duplicates.json` · `cleanup_proposal.json` · `selection_state.json` · `skip_rules.json` · `music_tag_audit.json` · `tag_plan.json` · `artist_images/` (cached artist photos) · `artist_images_missing.json` · `mb_candidates.json` (written on demand by `musicbrainz_lookup.py`)
 
 ### Subtitle fetcher — live (2026-09-02)
 - Login flow verified: /login (username+password from .env) → Bearer token → /download → link on www.opensubtitles.com needs BROWSER-like headers (Cloudflare error 1010 otherwise).

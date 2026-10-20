@@ -699,7 +699,7 @@ docker compose exec system-manager cat /data/access-code
 cd tests && PYTHONPATH=<repo root> \
   uv run --python 3.14 --with flask==3.0.3 --with gunicorn==22.0.0 \
   --no-project python -m unittest discover
-# 230 tests, ~4s, all passing — on Python 3.12 or newer.
+# 277 tests, ~4s, all passing — on Python 3.12 or newer.
 ```
 
 ---
@@ -790,12 +790,10 @@ written; `scripts/` does not exist in this project.
 
 ## Git Status
 
-Clean through `eeb2db8` ("docs: Milestone 20, and the substring bug behind
-it"). **Uncommitted:** 8 files, +191/-16 — the ARP neighbour table
-(`hostnet.neighbors()`, `/network/neighbors`, the page's Neighbors section and
-its six tests), the Milestone 21 fix that lets it survive a missing host mount,
-and the documentation for both. Milestone 15 (the organizer as a real blueprint)
-is `4f5f00b`. The sibling
+Clean through `a1991d9` ("feat: DNS benchmarking and dnsmasq-backed resolver
+control on /network"), which also carries Milestone 21 and the Music page work
+(`948fc34`). The working tree is clean. Milestone 15 (the organizer as a real
+blueprint) is `4f5f00b`. The sibling
 checkout is clean through `35c6f62`: `fa55804` dropped 23 dead
 `video_library*.json` variants, `ee169fb` added the Oct 1–5 host tooling
 (`media_path` reuse, `gone` status, `.bak`, genre-needle sync), and `35c6f62`
@@ -803,7 +801,7 @@ made the scanner emit every episode in `videos[]` instead of one sample;
 Milestone 5 completed in `d1ac423`. The 2026-09-26 verification pass
 (Milestone 6) was documentation-only. A later pass on the same day fixed four
 container/host bugs — see the Milestone 7 entry, and Milestone 9 below.
-**230 tests pass, 0 failures** (2026-10-08).
+**277 tests pass, 0 failures** (2026-10-20; was 230 on 2026-10-08).
 
 The sibling checkout (`../folder_organizer`) is clean through `35c6f62`. It
 spent the whole of Milestone 18 and 19's aftermath with 27 files uncommitted —
@@ -1028,6 +1026,13 @@ port-4000 proxy.
   `commands_to_run/subtitle_queue.json`; `subtitle_runner.py` drains it on the
   host, because the container has no media mount and no OpenSubtitles
   credentials. Dry-run unless `--apply`, capped at the 20/day free tier.
+- ~~Make `/organizer/music` a card library, and let a click fix the tags~~ —
+  **done 2026-10-13**, see Milestone 22. Two grouping modes, filters, sort,
+  paging, artist photos and album covers, and a badge that proposes, accepts
+  and writes tags after a dry run and a confirm. The remaining half is the
+  audit's freshness: `data/music_tag_audit.json` is a snapshot, and a group
+  whose files were tagged after the last audit reports "nothing to write"
+  until `python3 music_tag_audit.py` is re-run on the host.
 - ~~Rating source decision~~ — **decided and shipped 2026-09-27**, `8eafab2`.
   TMDB, not Rotten Tomatoes: `TMDB_API_KEY` was already in `.env` and
   `tmdb_client.py` had already matched 455/455 cards, so the provider choice
@@ -1654,4 +1659,60 @@ page says so rather than rendering an empty table that reads like missing data.
 That half of #7 stays open, as does passive service discovery (mDNS, SSDP) and
 the network map.
 
-**230 tests pass, 0 failures** (224 + 6).
+**277 tests pass, 0 failures** (2026-10-20).
+
+### 2026-10-13 — Milestone 22: the Music page, and a button that fixes tags
+
+`/organizer/music` was a table of artists with a search box. It is now a card
+library in the shape of the video page: search, drive and format filters,
+sort, paging at 48 groups, and a per-group track list. Two grouping modes
+share those filters — by artist, and by album folder.
+
+**Card images come from two different places, because the library has no
+artist photos.** There is no image on disk for an artist, but there is album
+art in 56 of the 252 artist folders. So an artist card lazy-loads a photo
+fetched host-side by the new `artist_images.py` (MusicBrainz artist → Wikidata
+→ P18 → a 300px Wikimedia Commons thumbnail), and a folder card serves the
+album's own `folder.jpg`. The cover endpoint resolves the path and refuses
+anything outside the Music root, so a path climbing out with `..` gets a 404
+rather than the file.
+
+**The untagged badge became a button that fixes the group.** It proposes tags
+from the path, looks up a real MusicBrainz release year for any track whose
+year is only an mtime guess, accepts the confident fields, and writes them
+after a dry run and a confirm. The write goes to its own fix list rather than
+the shared one, so a click cannot disturb a batch the user is reviewing on
+the tags page.
+
+**Two bugs, and both of them made tagged files look untagged.** The audit read
+WMA tags with `v[0].strip()`, but mutagen returns `ASFUnicodeAttribute` for
+that format — so 18 fully tagged files raised, were recorded as errors with no
+tags, and appeared as untagged. And the accept rule required *every* proposed
+field to be confident, so one low-confidence year — guessed from the file's
+modified date — vetoed the whole track even when its title and artist were
+both fine. The rule now needs one confident empty field, and a low-confidence
+field is dropped from the write rather than used to veto it.
+
+**A group whose files already carry the proposed tags is reported as "nothing
+to write" rather than queued.** That normally means the audit is stale: the
+audit is a snapshot, and a file tagged after the last run still shows as
+untagged until the audit is refreshed. This is worth stating plainly, because
+the earlier symptom — a button that says "no confident proposal" for a
+perfectly good album — looks like a broken feature and is usually a stale
+`data/music_tag_audit.json`.
+
+**The container can write tags itself.** It has the Music mount and `mutagen`,
+so the write no longer has to be handed back as a script for the user to run.
+`mb_lookup.py` lives inside the package because the image copies
+`system_manager/` wholesale while the root script list in the Dockerfile is
+fixed; the root `musicbrainz_lookup.py` CLI still writes
+`data/mb_candidates.json` for the tags page.
+
+Verified: 16 new tests in `tests/test_music_page.py`. The low-confidence test
+was confirmed **red** against the old accept rule and green after, rather
+than assumed either way. The real write was exercised on one MP3 with a
+byte-level backup and then restored — `album` was written, read back, and the
+file returned to its original md5. Live: No Clear Mind's dry run accepted 18
+of 19 tracks with MusicBrainz years. The browser was not used for this, so the
+layout is unverified by eye.
+
