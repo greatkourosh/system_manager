@@ -17,7 +17,7 @@ import shlex
 from collections import Counter
 from datetime import date
 
-from flask import Blueprint, Response, jsonify, render_template, request, send_file
+from flask import Blueprint, Response, jsonify, render_template, request, send_file, url_for
 
 from media_path import to_host_path
 from . import subtitle_queue
@@ -144,11 +144,38 @@ def scan_page():
 
 
 MUSIC_PAGE_SIZE = 48
+# How many tracks one fix request covers. Reading a tag costs about 27 ms, so
+# a chunk of 500 is a couple of minutes of work -- long enough to need
+# feedback, short enough that the request comes back before a browser gives up.
+FIX_CHUNK = 500
 MUSIC_SORTS = {
     "tracks": lambda a: -a["tracks"],
     "size": lambda a: -a["bytes"],
     "name": lambda a: a["name"].lower(),
 }
+
+def _music_tags_url(key, mode, by_path, paths):
+    """A link to the Music Tags page, filtered to the group that failed.
+
+    The page's own filters are the folder, the missing field, the plan state
+    and a text search over the paths. A folder group is a folder on that page,
+    so it filters by folder. An artist is not -- the page groups by the
+    folder under Music -- so it filters by the artist's name in the search
+    box, which is what narrows the list to that artist.
+    """
+    from urllib.parse import urlencode
+    fields = Counter()
+    for path in paths:
+        for field in (by_path.get(path) or {}).get("missing") or []:
+            fields[field] += 1
+    params = {"state": "all"}
+    if mode == "folder":
+        params["folder"] = key.split("/")[-1]
+    else:
+        params["q"] = key
+    if fields:
+        params["missing"] = fields.most_common(1)[0][0]
+    return url_for("organizer.organizer_api.music_tags_page") + "?" + urlencode(params)
 
 def _music_parts(path):
     parts = path.replace("\\", "/").split("/")
@@ -1272,22 +1299,70 @@ def api_tags_propose():
 
 
 def _fill_years_from_musicbrainz(proposed, by_path):
-    """Replace a guessed (low) year with the MusicBrainz release year when it matches well."""
+    """Replace a guessed (low) year with the MusicBrainz release year.
+
+    The year is looked up per album, not per track. A track's own recording
+    often has a live or compilation release that matches its title first, so
+    a per-track lookup dates the track to the wrong album -- "Nostalgia" came
+    back as 2020 from "Live at the Acropolis" instead of 2010 from "The
+    Inspiring Journey". An album's tracks share one release date, so one
+    query per album is both correct and fast.
+
+    A track only gets the album's year when the release actually lists it, so
+    a folder that is not the album it is named after proposes no year. A
+    track whose folder has no release of its own -- a compilation -- falls
+    back to the year of the studio album the track came from.
+    """
     from . import mb_lookup
-    todo = []
+    albums = []
     for path, entry in proposed.items():
         year = entry.get("fields", {}).get("year")
         if year and year.get("confidence") == "low" and by_path.get(path, {}).get("year") in (None, ""):
-            todo.append({"path": path, "tags": {"artist": (entry["fields"].get("artist") or {}).get("value", ""),
-                                                "title": (entry["fields"].get("title") or {}).get("value", "")}})
-    if not todo:
+            fields = entry["fields"]
+            albums.append({"artist": (fields.get("artist") or {}).get("value", ""),
+                           "album": (fields.get("album") or {}).get("value", "")})
+    if not albums:
         return
-    found = mb_lookup.lookup_recordings(todo, len(todo))
-    for path, cand in found.items():
-        if cand.get("score", 0) < 70 or not cand.get("year"):
+    found = mb_lookup.lookup_albums(albums)
+    unresolved = []
+    for path, entry in proposed.items():
+        year = entry.get("fields", {}).get("year")
+        if not year or year.get("confidence") != "low":
             continue
-        proposed[path]["fields"]["year"] = {"value": cand["year"], "source": "musicbrainz",
-                                            "overwrite": False, "confidence": "med"}
+        fields = entry["fields"]
+        artist = (fields.get("artist") or {}).get("value", "")
+        album_name = (fields.get("album") or {}).get("value", "")
+        album_year = found.get((artist, album_name))
+        if not album_year or not album_year.get("year"):
+            unresolved.append((path, entry, artist))
+            continue
+        title = (fields.get("title") or {}).get("value", "")
+        if album_year.get("tracks") and mb_lookup.norm(title) not in album_year["tracks"]:
+            unresolved.append((path, entry, artist))
+            continue
+        entry["fields"]["year"] = {"value": album_year["year"], "source": "musicbrainz",
+                                   "overwrite": False, "confidence": "med"}
+    if not unresolved:
+        return
+    # The album itself is not on MusicBrainz -- a compilation, most often.
+    # The track's own studio album is the next best answer.
+    #
+    # Each track costs a request, and an artist whose albums are all unknown
+    # to MusicBrainz would turn this into minutes of waiting for nothing: the
+    # fallback only pays off for a handful of tracks. A large group is left
+    # undated instead, which is the honest answer for a track with no studio
+    # album to name.
+    if len(unresolved) > mb_lookup.TRACK_FALLBACK_MAX:
+        return
+    tracks = mb_lookup.lookup_track_years(
+        [{"artist": artist, "title": (entry["fields"].get("title") or {}).get("value", "")}
+         for _, entry, artist in unresolved])
+    for path, entry, artist in unresolved:
+        cand = tracks.get((artist, (entry["fields"].get("title") or {}).get("value", "")))
+        if not cand or not cand.get("year"):
+            continue
+        entry["fields"]["year"] = {"value": cand["year"], "source": "musicbrainz",
+                                   "overwrite": False, "confidence": "med"}
 
 @bp.route("/api/music/fix-untagged", methods=["POST"])
 def api_music_fix_untagged():
@@ -1295,6 +1370,12 @@ def api_music_fix_untagged():
 
     Dry run unless the body sets dry=false. Writes only this group's entries to
     their own fix list, never the shared tag_fix_list.json.
+
+    A group larger than FIX_CHUNK is processed in chunks: the body carries an
+    ``offset`` and the response says how many tracks are left. Reading a tag
+    costs about 27 ms, so one request cannot cover thousands of files -- the
+    browser would give up long before the work was done. Chunking lets the
+    caller walk the group in pieces and stop at any point.
     """
     import contextlib
     import io
@@ -1313,8 +1394,14 @@ def api_music_fix_untagged():
              if f["path"] in by_path and group_of(f["path"]).replace("\\", "/") == key]
     if not paths:
         return jsonify({"ok": False, "error": "no untagged tracks in this group"}), 400
-    if len(paths) > 5000:
-        return jsonify({"ok": False, "error": f"{len(paths)} tracks — max 5000 per fix"}), 400
+    total = len(paths)
+    try:
+        offset = max(0, int(body.get("offset", 0)))
+    except (TypeError, ValueError):
+        offset = 0
+    chunk = paths[offset:offset + FIX_CHUNK]
+    paths = chunk
+    remaining = max(0, total - (offset + len(chunk)))
 
     plan = load_tag_plan()
     catalog_mtime = {f["path"]: f.get("mtime") for f in catalog if f["path"] in by_path}
@@ -1340,7 +1427,10 @@ def api_music_fix_untagged():
     save_tag_plan(plan)
 
     if not accepted:
-        return jsonify({"ok": False, "error": "no track had a confident proposal — use the Music Tags page to review"}), 400
+        return jsonify({"ok": False, "error": "no track had a confident proposal — review them on the Music Tags page",
+                        "tags_url": _music_tags_url(key, mode, by_path, paths),
+                        "total": total, "offset": offset, "processed": offset + len(chunk),
+                        "remaining": remaining, "next_offset": offset + len(chunk) if remaining else None}), 400
     group_list = os.path.join(CMD_DIR, "tag_fix_group.json")
     out_entries = []
     for path, entry in proposed.items():
@@ -1373,7 +1463,65 @@ def api_music_fix_untagged():
         return jsonify({"ok": False, "dry": dry, "error": "nothing to write: the files already have these tags, "
                         "so the audit is out of date. Re-run the music tag audit, then try again.",
                         "summary": summary}), 400
-    return jsonify({"ok": True, "dry": dry, "accepted": len(out_entries), "written": count, "summary": summary})
+    if not dry:
+        _apply_to_audit(out_entries)
+    return jsonify({"ok": True, "dry": dry, "accepted": len(out_entries), "written": count, "summary": summary,
+                    "total": total, "offset": offset, "processed": offset + len(chunk),
+                    "remaining": remaining, "next_offset": offset + len(chunk) if remaining else None})
+
+def _apply_to_audit(entries):
+    """Fold the written tags back into the audit so the counts drop.
+
+    The audit is a snapshot of the files at scan time, so a tag written now
+    leaves it stale: the card keeps saying "52 untagged" and the button
+    offers the same fix again. Only the fields that were written change, and
+    a file with nothing left missing leaves the problems list entirely.
+
+    The aggregate counts cover every file the audit looked at, not just the
+    ones still missing something, so they are adjusted by the same amount
+    the problems list shrank rather than recomputed from it.
+    """
+    audit = load("music_tag_audit.json")
+    if not audit:
+        return
+    problems = audit.get("problems") or []
+    status_counts = Counter(audit.get("status_counts") or {})
+    missing_counts = Counter(audit.get("missing_field_counts") or {})
+    changed = False
+    for entry in entries:
+        for problem in problems:
+            if problem.get("path") != entry["path"]:
+                continue
+            for field, value in (entry.get("tags") or {}).items():
+                if problem.get(field) != value:
+                    problem[field] = value
+                    changed = True
+            was = list(problem.get("missing") or [])
+            missing = [f for f in was if not problem.get(f)]
+            if missing != was:
+                problem["missing"] = missing
+                changed = True
+            for field in was:
+                if field not in missing:
+                    missing_counts[field] -= 1
+            if not missing and problem.get("status") == "incomplete":
+                problem["status"] = "ok"
+                status_counts["incomplete"] -= 1
+                status_counts["ok"] += 1
+                changed = True
+            break
+    if not changed:
+        return
+    still = [p for p in problems if p.get("status") in ("incomplete", "error", "unreadable")]
+    audit["problems"] = still
+    audit["files_needing_fix"] = len(still)
+    audit["status_counts"] = {k: v for k, v in status_counts.items() if v}
+    audit["missing_field_counts"] = {k: v for k, v in missing_counts.items() if v}
+    path = os.path.join(DATA, "music_tag_audit.json")
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(audit, f, ensure_ascii=False, indent=1)
+    os.replace(tmp, path)
 
 @bp.route("/api/tags/set-entry", methods=["POST"])
 def api_tags_set_entry():

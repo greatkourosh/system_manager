@@ -69,7 +69,7 @@
         <div class="small text-truncate text-muted">{% for ext, n in g.formats %}{{ ext }} {{ n }}{% if not loop.last %} · {% endif %}{% endfor %}</div>
         <div class="mt-1">
           {% if g.untagged %}
-          <button class="badge text-bg-warning border-0" onclick="fixUntagged(this.closest('.music-card').dataset.key)"
+          <button class="badge text-bg-warning border-0" onclick="fixUntagged(this)"
                   title="Propose, accept and export tag fixes for these {{ g.untagged }} tracks. The host applies them with apply_music_tags.py --apply.">{{ g.untagged }} untagged · fix</button>
           {% endif %}
           <button class="btn btn-sm btn-outline-secondary py-0 ms-1" onclick="openKey(this.closest('.music-card').dataset.key)">tracks</button>
@@ -110,21 +110,64 @@ function setMode(mode) {
   location.search = p.toString();
 }
 
-async function fixUntagged(key) {
+async function fixUntagged(btn, offset) {
+  const key = btn.closest('.music-card').dataset.key;
   const mode = {{ mode|tojson }};
+  offset = offset || 0;
+  // The lookup that finds the tags takes seconds, so the button says so
+  // instead of looking dead.
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.classList.add('opacity-50');
+  const setLabel = (t) => { btn.textContent = t; };
   const post = async (dry) => {
     const r = await fetch(U['api/music/fix-untagged'], {method: 'POST',
-      headers: {'Content-Type': 'application/json'}, body: JSON.stringify({key, mode, dry})});
+      headers: {'Content-Type': 'application/json'}, body: JSON.stringify({key, mode, dry, offset})});
     const j = await r.json().catch(() => ({ok: false, error: 'HTTP ' + r.status}));
     return j;
   };
-  const dry = await post(true);
-  if (!dry.ok) { alert('Failed: ' + dry.error); return; }
-  if (!confirm(`Dry run: ${dry.accepted} tracks.\n${dry.summary}\n\nWrite these tags into the music files now?`)) return;
-  const real = await post(false);
-  if (!real.ok) { alert('Failed: ' + real.error); return; }
-  alert(real.summary);
-  location.reload();
+  try {
+    setLabel('looking up tags…');
+    const dry = await post(true);
+    if (!dry.ok) { showFailure(dry); return; }
+    const more = dry.remaining > 0;
+    const scope = more
+      ? `Tracks ${dry.processed}–${dry.processed + dry.accepted - 1} of ${dry.total}.\n${dry.summary}`
+      : `${dry.accepted} tracks.\n${dry.summary}`;
+    if (!confirm(`${scope}\n\nWrite these tags into the music files now?`)) return;
+    setLabel('writing tags…');
+    const real = await post(false);
+    if (!real.ok) { showFailure(real); return; }
+    if (real.remaining > 0) {
+      // The group is larger than one request covers. Offer the next chunk
+      // rather than leaving the button looking finished.
+      if (confirm(`${real.summary}\n\n${real.remaining} tracks are left in this group. Continue with the next ${Math.min(real.remaining, 500)}?`)) {
+        btn.disabled = false;
+        btn.classList.remove('opacity-50');
+        setLabel('continue fix…');
+        await fixUntagged(btn, real.next_offset);
+      }
+      return;
+    }
+    alert(real.summary);
+    location.reload();
+  } finally {
+    btn.disabled = false;
+    btn.classList.remove('opacity-50');
+    setLabel(label);
+  }
+}
+
+function showFailure(result) {
+  const msg = 'Failed: ' + (result.error || 'unknown error');
+  if (result.tags_url) {
+    if (confirm(msg + '\n\nOpen the Music Tags page to review these tracks?')) {
+      location.href = result.tags_url;
+      return;
+    }
+    return;
+  }
+  alert(msg);
 }
 
 function openKey(key) {

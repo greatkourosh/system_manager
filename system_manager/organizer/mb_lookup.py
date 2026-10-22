@@ -1,9 +1,10 @@
-"""MusicBrainz recording lookup, stdlib only.
+"""MusicBrainz release lookup, stdlib only.
 
 Lives inside the package rather than at the repo root because the image copies
 system_manager/ wholesale but only a fixed list of top-level scripts. The
-root-level musicbrainz_lookup.py is that fixed list's host CLI; it loads this
-module by path so there is a single implementation.
+root-level musicbrainz_lookup.py is that fixed list's host CLI; it is
+standalone and keeps its own copy of the per-track lookup it needs to write
+data/mb_candidates.json for the Music Tags page.
 """
 import json
 import time
@@ -11,6 +12,15 @@ import urllib.parse
 import urllib.request
 
 UA = "MediaOrganizer/1.0 (https://localhost; kourosh@local)"
+
+# MusicBrainz asks a client for one request per second.
+MB_INTERVAL = 1.1
+
+# How many tracks may fall back to a per-track lookup when the album itself
+# is unknown to MusicBrainz. Each one costs a request, and an artist whose
+# albums are all unknown would turn the fallback into minutes of waiting for
+# nothing. Past this many, the tracks are left undated.
+TRACK_FALLBACK_MAX = 20
 
 def _get(url):
     req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/json"})
@@ -23,38 +33,150 @@ def _get(url):
                 return None
             time.sleep(2 ** (attempt + 1))
 
-def lookup_recordings(entries, limit):
-    """entries: [{path, tags: {artist, title}}] -> {path: {score, artist, album, year}}.
+def norm(text):
+    """Lowercase and drop punctuation, so "One Man's Dream" and
+    "One Mans Dream" compare equal. Filenames and release titles spell the
+    same track differently often enough to matter.
 
-    Grouped by (artist, title) so a whole album of one artist is one query.
-    MusicBrainz allows one request per second.
+    An apostrophe is dropped rather than spaced out: a filename writes
+    "Im So" where the release title writes "I'm So", so spacing the
+    apostrophe apart would stop the two from matching.
     """
-    seen = {}
-    for e in entries:
-        a = (e.get("tags") or {}).get("artist", "")
-        t = (e.get("tags") or {}).get("title", "")
-        if not t:
-            continue
-        seen.setdefault((a.lower(), t.lower()), []).append(e)
+    cleaned = "".join(ch if (ch.isalnum() or ch.isspace()) else " "
+                      for ch in (text or "").lower().replace("'", ""))
+    return " ".join(cleaned.split())
+
+def _search(kind, query, limit=10):
+    qs = urllib.parse.quote(query)
+    data = _get(f"https://musicbrainz.org/ws/2/{kind}/?query={qs}&fmt=json&limit={limit}")
+    return (data or {}).get(kind + "s") or []
+
+def _release_detail(release_id):
+    """The release's own date and track list.
+
+    The search result leaves the date empty for some releases, so the year
+    has to come from the release itself.
+    """
+    data = _get(f"https://musicbrainz.org/ws/2/release/{release_id}"
+                f"?inc=recordings&fmt=json")
+    if not data:
+        return None, {}
+    date = data.get("date") or ""
+    year = date[:4] if date[:4].isdigit() else None
+    tracks = {}
+    for medium in data.get("media") or []:
+        for track in medium.get("tracks") or []:
+            title = norm(track.get("title"))
+            if title:
+                tracks.setdefault(title, track.get("position"))
+    return year, tracks
+
+# An album's release date does not change, so the lookups are cached for the
+# life of the process. One click asks for the same album twice -- once to
+# preview and once to write -- and each lookup costs a request.
+_album_cache = {}
+_track_cache = {}
+
+def lookup_albums(albums, limit=30):
+    """albums: [{artist, album}] -> {(artist, album): {"year", "tracks", "title"}}.
+
+    One query per album, not per track: an album's tracks share its release
+    date, and asking MusicBrainz per track is both slow and wrong -- the first
+    recording match for a track is often a live or compilation release, so
+    the track's own year comes back as the year of the wrong album.
+
+    Each album costs a request and MusicBrainz allows one a second, so the
+    number of lookups is capped; an album past the cap is left undated.
+    """
     out = {}
-    n = 0
-    for (artist, title), group in seen.items():
-        if n >= limit:
-            break
-        qs = urllib.parse.quote(f'artist:"{artist}" AND recording:"{title}"' if artist
-                                else f'recording:"{title}"')
-        data = _get(f"https://musicbrainz.org/ws/2/recording/?query={qs}&fmt=json&limit=3")
-        n += 1
-        time.sleep(1.1)
-        if not data or not data.get("recordings"):
+    asked = 0
+    for entry in albums:
+        artist = (entry.get("artist") or "").strip()
+        album = (entry.get("album") or "").strip()
+        if not album:
             continue
-        rec = data["recordings"][0]
-        releases = rec.get("releases") or []
-        date = releases[0].get("date", "") if releases else ""
-        year = date[:4] if date[:4].isdigit() else None
-        for e in group:
-            out[e["path"]] = {"score": int(rec.get("score", 0)),
-                              "artist": (rec.get("artist-credit") or [{}])[0].get("name"),
-                              "album": releases[0].get("title") if releases else None,
-                              "year": year}
+        key = (artist, album)
+        if key in out:
+            continue
+        if key in _album_cache:
+            out[key] = _album_cache[key]
+            continue
+        if asked >= limit:
+            out[key] = None
+            _album_cache[key] = None
+            continue
+        asked += 1
+        query = f'release:"{album}"' + (f' AND artist:"{artist}"' if artist else "")
+        releases = _search("release", query)
+        if not releases:
+            out[key] = None
+            _album_cache[key] = None
+            time.sleep(MB_INTERVAL)
+            continue
+        # A release whose title matches the album exactly beats a fuzzy one.
+        want = norm(album)
+        exact = [r for r in releases if norm(r.get("title")) == want]
+        release = (exact or releases)[0]
+        year, tracks = _release_detail(release["id"]) if release.get("id") else (None, {})
+        out[key] = {"year": year, "title": release.get("title"), "tracks": tracks,
+                    "score": int(release.get("score", 0))}
+        _album_cache[key] = out[key]
+        time.sleep(MB_INTERVAL)
+    return out
+
+def lookup_track_years(tracks, limit=20):
+    """tracks: [{artist, title}] -> {(artist, title): {"year", "album"}}.
+
+    The year of a track that has no album of its own -- a track on a
+    compilation -- is the year of the studio album it came from. The
+    releases a recording appears on are scanned for one that is a studio
+    album, and a live or compilation release is skipped: dating a track by
+    the concert it was played in is worse than leaving it undated.
+
+    Each track costs a request and MusicBrainz allows one a second, so the
+    number of lookups is capped. A group that needs more than the cap gets
+    its tracks looked up only up to the cap; the rest stay undated, which is
+    the honest answer for a track that has no studio album anyway.
+    """
+    out = {}
+    asked = 0
+    for entry in tracks:
+        artist = (entry.get("artist") or "").strip()
+        title = (entry.get("title") or "").strip()
+        if not title:
+            continue
+        key = (artist, title)
+        if key in out:
+            continue
+        if key in _track_cache:
+            out[key] = _track_cache[key]
+            continue
+        if asked >= limit:
+            out[key] = None
+            _track_cache[key] = None
+            continue
+        asked += 1
+        query = f'recording:"{title}"' + (f' AND artist:"{artist}"' if artist else "")
+        qs = urllib.parse.quote(query)
+        data = _get(f"https://musicbrainz.org/ws/2/recording/?query={qs}&fmt=json&limit=1&inc=releases")
+        time.sleep(MB_INTERVAL)
+        recordings = (data or {}).get("recordings") or []
+        if not recordings:
+            out[key] = None
+            _track_cache[key] = None
+            continue
+        best = None
+        for release in recordings[0].get("releases") or []:
+            group = release.get("release-group") or {}
+            date = release.get("date") or ""
+            if not date[:4].isdigit():
+                continue
+            if group.get("primary-type") != "Album" or group.get("secondary-types"):
+                continue
+            if release.get("status") not in (None, "Official"):
+                continue
+            best = {"year": date[:4], "album": release.get("title")}
+            break
+        out[key] = best
+        _track_cache[key] = best
     return out

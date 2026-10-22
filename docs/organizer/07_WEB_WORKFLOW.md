@@ -55,14 +55,20 @@ Workflow: **Auto-detect proposals** → review/edit → Accept → **Export fix 
 Clicking an untagged badge posts to `/api/music/fix-untagged`, which does the whole chain for one artist or folder:
 
 1. Proposes tags from the path (`tag_detect.propose_for`).
-2. Looks up a **MusicBrainz release year** for any track whose year is only an mtime guess, and uses it when the match scores ≥ 70. `mb_lookup.py` lives inside the package because the image copies `system_manager/` wholesale; the root `musicbrainz_lookup.py` CLI still writes `data/mb_candidates.json` for the Music Tags page.
+2. Looks up a **MusicBrainz release year** for any track whose year is only an mtime guess. The lookup is **per album**: one release query gives the album's date and its track list, and a track is dated only when that release lists it. `mb_lookup.py` lives inside the package because the image copies `system_manager/` wholesale; the root `musicbrainz_lookup.py` CLI still writes `data/mb_candidates.json` for the Music Tags page.
 3. Accepts a track when at least one field is high/med confidence, empty in the audit, and would not overwrite. A low-confidence field is dropped from the write, not used to veto the track.
 4. Writes the group's entries to its own `commands_to_run/tag_fix_group.json` — never the shared `tag_fix_list.json` — and runs `apply_music_tags.apply()`, which now takes the list path as an argument.
 5. **Dry run first, then a confirm, then the real write.** The button shows the dry-run summary and asks before touching any file.
+6. Folds what was written back into `data/music_tag_audit.json`, so the card's untagged count drops instead of offering the same tracks again.
+7. **A group larger than 500 tracks is done in chunks.** Reading a tag costs about 27 ms, so one request cannot cover thousands of files — the browser would give up long before the work was done. The response carries `next_offset`, and the button offers the next chunk until the group is finished.
 
-The container can write tags itself: it has the Music mount and `mutagen`. The dry run takes ~2 s per track that needs a year, because MusicBrainz allows one request per second.
+The container can write tags itself: it has the Music mount and `mutagen`. The lookup costs one MusicBrainz request per album, at one request per second, and the results are cached for the life of the process — so a click costs one request per album, not one per track.
+
+> The year comes from the album, not from the track. Looking a track up on its own dates it to whichever release matched its title first, which is often a live or compilation release: "Nostalgia" came back as 2020 from "Live at the Acropolis" instead of 2010 from "The Inspiring Journey", and a whole album's tracks were each dated to a different album. A track whose folder has no release of its own — a compilation — falls back to the year of the studio album it came from, but only for a handful of tracks: each fallback is another request, and an artist whose albums are all unknown to MusicBrainz (Fery, for one) would otherwise cost minutes of waiting for nothing. A track that only appears on live and compilation releases stays undated rather than being dated to a concert.
 
 > A group whose files already carry the proposed tags is reported as "nothing to write" rather than queued. That normally means `data/music_tag_audit.json` is stale — re-run `python3 music_tag_audit.py` (host) and try again.
+
+> When nothing in a group can be proposed, the failure carries a link to the Music Tags page, filtered to that group: the folder for a folder group, the artist's name in the search box for an artist, and the missing field the group was missing most. The button offers to open it.
 
 ### Tag audit fix (2026-10-14)
 `music_tag_audit.py` read WMA tags with `v[0].strip()`, but mutagen returns `ASFUnicodeAttribute` for that format, so every WMA file raised and was recorded as an error with no tags — 18 files looked untagged when they were fully tagged. The reader now converts with `str()` first. Re-running the audit dropped the reader errors from 21 to 3 and the "needs fix" count from 13,125 to 13,107.

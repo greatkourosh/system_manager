@@ -1716,3 +1716,41 @@ file returned to its original md5. Live: No Clear Mind's dry run accepted 18
 of 19 tracks with MusicBrainz years. The browser was not used for this, so the
 layout is unverified by eye.
 
+### 2026-10-22 — Milestone 23: the untagged button works, and writes the right years
+
+The report was "clicking the untagged badge does nothing". It was not dead —
+it was working, silently, for about a hundred seconds. Underneath that were
+three separate faults.
+
+**The year came from the wrong album.** The MusicBrainz lookup was done per
+track and took the first release whose title matched. That is often a live or
+compilation release, so "Nostalgia" was dated 2020 from "Live at the
+Acropolis" instead of 2010 from "The Inspiring Journey" — and every track in
+an album was dated to a different album, 44 wrong years in all. The lookup is
+now per album: one release query gives the album's date and its track list,
+and a track is dated only when that release lists it. 47 requests became 6;
+about a hundred seconds became 0.3 s. A compilation folder, which has no
+release of its own, falls back to the studio album the track came from, and a
+track that only appears on live and compilation releases is left undated.
+
+**The count never dropped.** The card read a stale audit snapshot, so after a
+successful write it still said "52 untagged" and offered the same tracks
+again. What was written is now folded back into the audit.
+
+**A group over 5000 tracks was refused.** Fery has 7765. Reading a tag costs
+about 27 ms, so one request cannot cover thousands of files and the browser
+would give up long before the work was done. The group is now done in chunks
+of 500, with `next_offset` in the response and the button offering the next
+chunk. A group nothing can be proposed for links to the Music Tags page,
+filtered to that group.
+
+**The button now says what it is doing** — `looking up tags…`, then
+`writing tags…` — and disables itself while it works. A slow action with no
+feedback reads as a broken one, which is what the original report was.
+
+**312 tests pass** (2026-10-22), 34 of them in `tests/test_music_page.py`.
+Each new test was confirmed **red** without its fix. Live, through a real
+browser: Yanni 52 → 5 untagged, Fery 7765 → 5533 across four chunks with
+1464 files written. The 44 wrong years this session wrote into the library
+were repaired by hand and diffed against a backup.
+

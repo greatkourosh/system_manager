@@ -593,9 +593,9 @@ Only files under `/media/kourosh/Multimedia/Music` are served. The path is resol
 ### `POST /organizer/api/music/fix-untagged`
 **Auth required.** Proposes, accepts and writes tag fixes for one artist or folder's untagged tracks.
 
-**Body:** `{"key": "No Clear Mind", "mode": "artist", "dry": true}`
+**Body:** `{"key": "No Clear Mind", "mode": "artist", "dry": true, "offset": 0}`
 
-`key` is the group name as the page renders it (a backslash path for a folder, a plain name for an artist); `mode` is `artist` or `folder`; `dry` defaults to true.
+`key` is the group name as the page renders it (a backslash path for a folder, a plain name for an artist); `mode` is `artist` or `folder`; `dry` defaults to true; `offset` starts the work at a track within the group and defaults to 0.
 
 **Response:**
 ```json
@@ -604,15 +604,22 @@ Only files under `/media/kourosh/Multimedia/Music` are served. The path is resol
   "dry": true,
   "accepted": 18,
   "written": 18,
-  "summary": "===== RUN END: would-apply=18 skipped=0 missing=0 failed=0 ====="
+  "summary": "===== RUN END: would-apply=18 skipped=0 missing=0 failed=0 =====",
+  "total": 42, "offset": 0, "processed": 18, "remaining": 0, "next_offset": null
 }
 ```
 
-The chain: propose from the path → look up a MusicBrainz release year for any track whose year is only an mtime guess (used when the match scores ≥ 70) → accept tracks with at least one high/med-confidence field that is empty and would not overwrite → write the group to `commands_to_run/tag_fix_group.json` → run `apply_music_tags.apply()` against that list.
+The chain: propose from the path → look up a MusicBrainz release year for any track whose year is only an mtime guess → accept tracks with at least one high/med-confidence field that is empty and would not overwrite → write the group to `commands_to_run/tag_fix_group.json` → run `apply_music_tags.apply()` against that list.
 
-**`dry: true` writes nothing.** With `dry: false` the tags are written to the music files, which the container can do: it has the Music mount and `mutagen`. The button always dry-runs first and asks before the real write.
+**A group is processed in chunks of 500.** Reading a tag costs about 27 ms, so one request cannot cover thousands of files — the browser would give up long before the work was done. The response carries `total`, `offset`, `processed`, `remaining` and `next_offset`; passing `next_offset` back continues where the last chunk stopped. The button on the Music page offers the next chunk until the group is done.
+
+The year is looked up **per album**, not per track: one MusicBrainz release query for the album gives its date and its track list, and a track is dated only when that release lists it. Looking a track up on its own dates it to whichever release matched its title first, which is often a live or compilation release — "Nostalgia" came back as 2020 from "Live at the Acropolis" rather than 2010 from "The Inspiring Journey". A track whose folder has no release of its own falls back to the year of the studio album the track came from, but only for a handful of tracks: each fallback is a request, and an artist whose albums are all unknown to MusicBrainz would otherwise cost minutes of waiting for nothing. A track that appears only on live and compilation releases stays undated. Lookups are cached for the life of the process, so the preview and the write cost one request per album between them.
+
+**`dry: true` writes nothing.** With `dry: false` the tags are written to the music files, which the container can do: it has the Music mount and `mutagen`. The button always dry-runs first and asks before the real write. The audit in `data/music_tag_audit.json` is updated with what was written, so the card's untagged count drops instead of offering the same tracks again.
 
 **Errors:** `400` with `no untagged tracks in this group` when the group has none, `no track had a confident proposal` when nothing is confident enough to write, and `nothing to write: the files already have these tags…` when the audit is stale and the files already carry the proposed values.
+
+The `no track had a confident proposal` response also carries a `tags_url`: a link to the Music Tags page filtered to the group that failed — the folder for a folder group, the artist's name in the search box for an artist, and the missing field the group was missing most. The Music page's button offers to open it.
 
 ---
 

@@ -52,3 +52,6 @@ commands_to_run/subtitle_log.txt
 commands_to_run/subtitle_queue.json
 commands_to_run/subtitle_queue_log.jsonl
 commands_to_run/delete_log.txt
+
+# Local copies of media files made before a bulk tag repair.
+.local-backups/
