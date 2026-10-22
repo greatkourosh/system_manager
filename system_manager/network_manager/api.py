@@ -9,6 +9,7 @@ from flask import Blueprint, current_app, jsonify, render_template, request
 
 from .. import auth
 from . import hostnet
+from . import topology as topology_collector
 from .dns import (
     DEFAULT_DOMAINS,
     benchmark_dns_providers,
@@ -173,6 +174,11 @@ def conntrack():
 @network_bp.route("/neighbors")
 def neighbors():
     return jsonify(hostnet.neighbors())
+
+
+@network_bp.route("/topology")
+def topology():
+    return jsonify(topology_collector.topology())
 
 
 @network_bp.route("/")

@@ -21,6 +21,7 @@ import os
 import re
 import shutil
 import socket
+import subprocess
 import tempfile
 import unittest
 from unittest import mock
@@ -29,6 +30,7 @@ from system_manager import create_app
 from system_manager.network_manager import dns as netdns
 from system_manager.network_manager import dnsmasq_helper as dnsmasq_helper
 from system_manager.network_manager import hostnet
+from system_manager.network_manager import topology
 
 
 def make_app():
@@ -126,6 +128,55 @@ class FakeHost:
         for attribute, value in (("address", mac), ("mtu", mtu), ("operstate", state)):
             with open(os.path.join(base, attribute), "w") as handle:
                 handle.write(value + "\n")
+
+    def bridge(self, name, members=(), **kwargs):
+        """A bridge, and the interfaces enslaved to it."""
+        self.interface(name, **kwargs)
+        base = os.path.join(self.root, "sys/class/net", name, "brif")
+        os.makedirs(base, exist_ok=True)
+        for member in members:
+            os.makedirs(os.path.join(base, member), exist_ok=True)
+            self.interface(member)
+            link = os.path.join(self.root, "sys/class/net", member, "master")
+            os.makedirs(os.path.dirname(link), exist_ok=True)
+            os.symlink(os.path.join("..", name), link)
+
+    def physical(self, name, **kwargs):
+        """A real NIC, which sysfs marks with a `device` symlink."""
+        self.interface(name, **kwargs)
+        device = os.path.join(self.root, "sys/class/net", name, "device")
+        os.makedirs(os.path.dirname(device), exist_ok=True)
+        os.symlink(os.path.join("..", "..", "..", "0000:05:00.0"), device)
+
+    def container(self, pid, container_id, comm="python", addresses=(), cmdline=""):
+        """A container init: nested pid namespace, docker cgroup, addresses."""
+        base = os.path.join(self.root, "proc", str(pid))
+        os.makedirs(os.path.join(base, "net"), exist_ok=True)
+        with open(os.path.join(base, "status"), "w") as handle:
+            handle.write(f"Name:\t{comm}\nNSpid:\t{pid}\t1\n")
+        with open(os.path.join(base, "cgroup"), "w") as handle:
+            handle.write(f"0::/../docker-{container_id}.scope\n")
+        with open(os.path.join(base, "comm"), "w") as handle:
+            handle.write(comm + "\n")
+        with open(os.path.join(base, "cmdline"), "wb") as handle:
+            handle.write(cmdline.encode() + b"\0")
+        if addresses:
+            lines = ["Main:"]
+            for address in addresses:
+                lines.append(f"  +-- {address}/32 0 0 1")
+                lines.append(f"     |-- {address}")
+                lines.append("        /32 host LOCAL")
+            with open(os.path.join(base, "net/fib_trie"), "w") as handle:
+                handle.write("\n".join(lines) + "\n")
+        with open(os.path.join(base, "net/dev"), "w") as handle:
+            handle.write(
+                "Inter-|   Receive                            "
+                "  |  Transmit\n"
+                " face |bytes    packets errs drop fifo frame "
+                "compressed multicast|bytes    packets errs drop fifo "
+                "colls carrier compressed\n"
+                "    lo: 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n"
+                "  eth0: 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n")
 
     def process(self, pid, fds=(), exe=None):
         """A /proc/<pid> holding fds, each a (fd number, link target)."""
@@ -760,6 +811,228 @@ class NetworkApiTests(unittest.TestCase):
         }, json={
             "backup_id": "dnsmasq-1792320000-a1b2c3d4.conf", "confirm": True,
         }).status_code, 401)
+
+
+class TopologyTests(unittest.TestCase):
+    """The shape of the host's network, as a graph.
+
+    The structure comes from sysfs, which procfs does not record: a bridge
+    has a `brif` directory, an enslaved port a `master` symlink, and a real
+    NIC a `device` symlink.
+    """
+
+    def test_a_bridge_is_told_apart_from_a_nic_and_a_port(self):
+        with FakeHost(route=ROUTE, fib_trie=FIB_TRIE) as host:
+            host.interface("lo")
+            host.bridge("br-test", members=["veth-a"])
+            host.physical("eno1")
+            kinds = {node["label"]: node.get("subtype")
+                     for node in topology.topology()["nodes"]
+                     if node["kind"] == "interface"}
+        self.assertEqual(kinds["br-test"], "bridge")
+        self.assertEqual(kinds["eno1"], "physical")
+        self.assertEqual(kinds["veth-a"], "port")
+        self.assertEqual(kinds["lo"], "loopback")
+
+    def test_a_port_hangs_off_its_bridge_not_off_the_host(self):
+        with FakeHost(route=ROUTE, fib_trie=FIB_TRIE) as host:
+            host.bridge("br-test", members=["veth-a"])
+            graph = topology.topology()
+        links = {(link["source"], link["target"]) for link in graph["links"]}
+        self.assertIn(("iface:br-test", "iface:veth-a"), links)
+        self.assertNotIn(("host", "iface:veth-a"), links)
+
+    def test_depth_counts_hops_from_the_host(self):
+        with FakeHost(route=ROUTE, fib_trie=FIB_TRIE) as host:
+            host.bridge("br-test", members=["veth-a"])
+            graph = topology.topology()
+        depths = {node["id"]: node["depth"] for node in graph["nodes"]}
+        self.assertEqual(depths["host"], 0)
+        self.assertEqual(depths["iface:br-test"], 1)
+        self.assertEqual(depths["iface:veth-a"], 2)
+
+    def test_a_container_is_found_by_its_nested_pid_namespace(self):
+        with FakeHost(route=ROUTE, fib_trie=FIB_TRIE) as host:
+            host.container(4242, "a" * 64, comm="ollama",
+                           addresses=["172.22.0.2"], cmdline="/bin/ollama serve")
+            graph = topology.topology()
+        containers = [node for node in graph["nodes"] if node["kind"] == "container"]
+        self.assertEqual(len(containers), 1)
+        self.assertEqual(containers[0]["label"], "ollama")
+        self.assertEqual(containers[0]["container_id"], "a" * 12)
+        self.assertEqual(containers[0]["addresses"], ["172.22.0.2"])
+        self.assertEqual(graph["containers"], 1)
+
+    def test_a_process_outside_a_container_is_not_a_container(self):
+        with FakeHost(route=ROUTE, fib_trie=FIB_TRIE) as host:
+            host.interface("lo")
+            base = os.path.join(host.root, "proc", "77")
+            os.makedirs(base, exist_ok=True)
+            with open(os.path.join(base, "status"), "w") as handle:
+                handle.write("Name:\tsystemd\nNSpid:\t77\n")
+            graph = topology.topology()
+        self.assertEqual(graph["containers"], 0)
+
+    def test_a_container_is_attached_to_the_bridge_its_address_routes_through(self):
+        with FakeHost(route=ROUTE, fib_trie=FIB_TRIE) as host:
+            # The route fixture puts 172.17.0.0/16 on docker0.
+            host.bridge("docker0")
+            host.container(4242, "b" * 64, addresses=["172.17.0.2"])
+            graph = topology.topology()
+        links = {(link["source"], link["target"]) for link in graph["links"]}
+        self.assertIn(("iface:docker0", "container:" + "b" * 12), links)
+
+    def test_the_default_route_becomes_the_upstream_node(self):
+        with FakeHost(route=ROUTE, fib_trie=FIB_TRIE) as host:
+            host.interface("lo")
+            host.physical("eno1")
+            graph = topology.topology()
+        upstream = [node for node in graph["nodes"] if node["kind"] == "upstream"]
+        self.assertEqual(len(upstream), 1)
+        self.assertEqual(upstream[0]["gateway"], "192.168.1.1")
+        self.assertEqual(upstream[0]["device"], "eno1")
+
+    def test_no_host_mounts_is_an_empty_graph_not_an_error(self):
+        root = tempfile.mkdtemp(prefix="sm-emptyhost-")
+        previous = os.environ.get("HOST_ROOT")
+        try:
+            os.environ["HOST_ROOT"] = root
+            graph = topology.topology()
+        finally:
+            if previous is None:
+                os.environ.pop("HOST_ROOT", None)
+            else:
+                os.environ["HOST_ROOT"] = previous
+            shutil.rmtree(root, ignore_errors=True)
+        self.assertEqual(graph["nodes"], [])
+        self.assertEqual(graph["links"], [])
+
+    def test_every_link_points_at_a_node_that_exists(self):
+        with FakeHost(route=ROUTE, fib_trie=FIB_TRIE) as host:
+            host.bridge("br-test", members=["veth-a"])
+            host.container(4242, "c" * 64, addresses=["172.22.0.2"])
+            graph = topology.topology()
+        known = {node["id"] for node in graph["nodes"]}
+        for link in graph["links"]:
+            self.assertIn(link["source"], known, link)
+            self.assertIn(link["target"], known, link)
+
+    def test_a_container_with_no_route_is_drawn_not_dropped(self):
+        """A container running but unreachable would read as a bug if the
+        graph simply left it out."""
+        with FakeHost(route=ROUTE, fib_trie=FIB_TRIE) as host:
+            # 10.9.9.9 is in no route the fixture has.
+            host.container(4242, "d" * 64, addresses=["10.9.9.9"])
+            graph = topology.topology()
+        containers = [node for node in graph["nodes"] if node["kind"] == "container"]
+        self.assertEqual(len(containers), 1)
+        self.assertEqual(containers[0]["detail"], "no route to it")
+        links = {(link["source"], link["target"]) for link in graph["links"]}
+        self.assertIn(("host", "container:" + "d" * 12), links)
+
+    def test_a_container_sharing_the_host_network_is_not_put_on_a_bridge(self):
+        with FakeHost(route=ROUTE, fib_trie=FIB_TRIE) as host:
+            host.bridge("docker0")
+            # 172.17.0.1 is the host's own address in the fixture, so this
+            # container is in the host's network namespace.
+            host.container(4242, "e" * 64, addresses=["172.17.0.1"])
+            graph = topology.topology()
+        containers = [node for node in graph["nodes"] if node["kind"] == "container"]
+        self.assertEqual(len(containers), 1)
+        self.assertTrue(containers[0]["host_network"])
+        self.assertEqual(containers[0]["device"], "")
+        links = {(link["source"], link["target"]) for link in graph["links"]}
+        self.assertIn(("host", "container:" + "e" * 12), links)
+        self.assertNotIn(("iface:docker0", "container:" + "e" * 12), links)
+
+    def test_the_endpoint_serves_the_graph(self):
+        app = make_app()
+        client = app.test_client()
+        response = client.get("/network/topology")
+        self.assertEqual(response.status_code, 200)
+        body = json.loads(response.get_data(as_text=True))
+        for key in ("host", "scope", "nodes", "links", "containers"):
+            self.assertIn(key, body)
+
+
+class NetworkPageFilterTests(unittest.TestCase):
+    """The three panels that start collapsed, and what filters they carry."""
+
+    def setUp(self):
+        self.app = make_app()
+        self.client = self.app.test_client()
+        self.page = self.client.get("/network/").get_data(as_text=True)
+    def test_the_three_panels_start_minimized(self):
+        for panel in ("interfaces-panel", "routes-panel", "ports-panel"):
+            self.assertIn(f'id="{panel}"', self.page)
+            # An open <details> carries the attribute; a minimized one does not.
+            block = self._block(panel)
+            self.assertNotIn(" open>", block,
+                             f"{panel} starts expanded")
+
+    def test_the_topology_panel_is_open_and_present(self):
+        self.assertIn('id="topology-panel"', self.page)
+        self.assertIn(" open>", self._block("topology-panel"))
+        self.assertIn('id="topology"', self.page)
+
+    def test_each_panel_offers_recommended_filters(self):
+        for group, presets in (
+            ("iface-filters", ("all", "up", "ipv4", "ipv6", "traffic")),
+            ("route-filters", ("all", "default", "ipv4", "ipv6", "gateway")),
+            ("port-filters", ("all", "tcp", "udp", "external", "loopback",
+                              "privileged", "known")),
+        ):
+            block = self._block(group)
+            for preset in presets:
+                self.assertIn(f'data-preset="{preset}"', block,
+                              f"{group} is missing the {preset} filter")
+            self.assertIn('data-preset="all" aria-pressed="true"', block)
+
+    def test_the_page_fetches_the_topology(self):
+        self.assertIn("get('/topology')", self.page)
+
+    def _block(self, element_id):
+        """The markup from an element's opening tag to its closing one."""
+        start = self.page.find(f'id="{element_id}"')
+        self.assertNotEqual(start, -1, f"no #{element_id} on the page")
+        end = self.page.find("</details>", start)
+        return self.page[start:end] if end != -1 else self.page[start:]
+
+
+class NetworkPageScriptTests(unittest.TestCase):
+    """The page's own script, run.
+
+    A server-side assertion reads the template. The failure this guards
+    against lives in what the JavaScript computes at runtime, so the script
+    from the *rendered* page is executed against a DOM stub and the result
+    is asserted on.
+    """
+
+    def setUp(self):
+        self.app = make_app()
+        self.client = self.app.test_client()
+        self.page = self.client.get("/network/").get_data(as_text=True)
+
+    def test_the_rendered_page_script_filters_and_draws(self):
+        node = shutil.which("node")
+        if node is None:
+            self.skipTest("node is not installed")
+        directory = tempfile.mkdtemp(prefix="sm-network-js-")
+        try:
+            page_file = os.path.join(directory, "page.html")
+            with open(page_file, "w", encoding="utf-8") as handle:
+                handle.write(self.page)
+            script = os.path.join(os.path.dirname(__file__), "page_dom_test.js")
+            result = subprocess.run(
+                [node, script, page_file],
+                capture_output=True, text=True, timeout=120)
+            self.assertEqual(
+                result.returncode, 0,
+                "the page's script failed its own assertions:\n"
+                f"{result.stdout}\n{result.stderr}")
+            self.assertIn("ALL PAGE ASSERTIONS PASSED", result.stdout)
+        finally:
+            shutil.rmtree(directory, ignore_errors=True)
 
 
 if __name__ == "__main__":

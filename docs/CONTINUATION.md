@@ -598,6 +598,8 @@ run.py ── create_app() ── Flask
 │     │                     upgrade commands. Read-only: runs nothing.
 │     ├── network_manager/ → blueprint at /network; hostnet.py parses the host's
 │     │                     /host/proc/1/net/* plus /host/sys/class/net/, and
+│     │                     topology.py reads sysfs for the link structure and
+│     │                     procfs for the containers behind each bridge.
 │     │                     api.py renders it into one page. Read-only: no
 │     │                     approval token, changes nothing.
 │     └── inventory/       → blueprint at /inventory; store.py (SQLite)
@@ -654,11 +656,22 @@ Packages module (mounted at `/packages`): `GET /packages/` — the upgradable se
 Full endpoint specs in API.md.
 
 Network module (mounted at `/network`): `GET /network/` — the HTML page — plus
-`GET /network/{summary,interfaces,routes,dns,ports,neighbors,conntrack}` for the
-JSON the page fills itself from. Read-only, and it changes no network state. It
-reports the **host's** network, parsed from `/host/proc/1/net/*` rather than
-shelled out to `ip`/`ss`, which would report the container's own stack. `summary`
-carries a `source` field naming which stack that is.
+`GET /network/{summary,interfaces,routes,dns,ports,neighbors,conntrack,topology}`
+for the JSON the page fills itself from. Read-only, and it changes no network
+state. It reports the **host's** network, parsed from `/host/proc/1/net/*` rather
+than shelled out to `ip`/`ss`, which would report the container's own stack.
+`summary` carries a `source` field naming which stack that is.
+
+`GET /network/topology` adds the *shape* of that network: which interfaces are
+bridges, which are enslaved to them, and which containers sit behind each
+bridge. procfs records none of that, so the link structure comes from sysfs
+(`/host/sys/class/net/*`) and the containers from procfs (`NSpid`, `cgroup`,
+`fib_trie`). Two things are not recoverable and are not invented: the name a
+container was started with (docker's own database is not mounted, so a
+container is labelled by the process it runs) and the veth↔container pairing
+(the container side hides its ifindex behind its own permissions, and the
+bridge forwarding database is not readable). A container is therefore attached
+to the bridge its address routes through.
 
 ### Approval Flow
 1. `POST /api/approve` `{action_type, parameters}` → `approval_token`, `preconditions`, `expires_in`
@@ -1753,4 +1766,58 @@ Each new test was confirmed **red** without its fix. Live, through a real
 browser: Yanni 52 → 5 untagged, Fery 7765 → 5533 across four chunks with
 1464 files written. The 44 wrong years this session wrote into the library
 were repaired by hand and diffed against a backup.
+
+### 2026-10-22 — Milestone 24: the network page shows the shape, not just the parts
+
+`/network` listed the host's interfaces, routes, ports and neighbours as
+tables, which is a fine inventory and no picture at all. The host runs 25
+docker containers across 12 bridges; the tables said nothing about which
+container was behind which bridge, or that a bridge existed at all.
+
+**Where the structure comes from.** procfs records no interface's kind, no
+bridge membership and no containers — it says what addresses exist and where
+traffic goes, and nothing about what is plugged into what. The three places
+that do know are sysfs and two procfs files:
+
+| What | Where | How |
+|------|-------|-----|
+| interface kind | `/host/sys/class/net/<if>/` | a `brif` directory means a bridge, a `master` symlink means enslaved to one, a `device` symlink means real hardware |
+| bridge membership | `/host/sys/class/net/<br>/brif/` | one directory per enslaved interface |
+| which processes are containers | `/host/proc/<pid>/status` | `NSpid` ends in `1` for a nested namespace's init |
+| which container | `/host/proc/<pid>/cgroup` | `docker-<64 hex>.scope`, in either cgroup version |
+| a container's addresses | `/host/proc/<pid>/net/fib_trie` | the `/32` LOCAL entries of *its* namespace |
+
+**Two things are not recoverable, and are not invented.** The name a
+container was started with lives in docker's own database, which is not
+mounted, and a container's hostname is its id — so a container is labelled by
+the process it runs. Which veth belongs to which container is also not
+recoverable: the container side of the pair hides its ifindex behind a
+permission the container process owns, the host side's MAC is not the
+container's, and the bridge forwarding database is not readable. A container
+is therefore attached to the bridge its address *routes through*, which the
+routing table does state. `docker0`'s own address routing to `br-*` was the
+first bug this caught: a container with the host's own addresses is in the
+host's network namespace and is drawn beside the host, not behind a bridge.
+
+**The first drawing was unreadable** — 26 veths, one per container, dwarfed
+everything else. Bridge ports and down interfaces are now hidden by default,
+with a checkbox for each; a host keeps the bridges of containers that have
+stopped, and there were 13 of those. A container that matches no subnet
+route is reported as `no route to it` rather than dropped, so a container the
+user can see running is never missing from the graph.
+
+**The three long tables start collapsed** and carry filter chips: Up only,
+IPv4, IPv6, Has traffic, and a kind dropdown for interfaces; Default only,
+IPv4, IPv6, With gateway for routes; TCP, UDP, Externally reachable,
+Loopback only, Privileged, Process known for ports. A filter changes what is
+shown, never what is fetched.
+
+**312 tests pass** (2026-10-22), 80 of them in `tests/test_network.py`. The
+page's own script is now run under node against a DOM stub, extracted from
+the *rendered* page, because a server-side assertion reads the template and
+the failure lives in what the JS computes at runtime. Each new test was
+confirmed **red** without its fix. Verified live in a real browser:
+interfaces 54 → 12 on "Up only" + Bridge, routes 154 → 3 on "Default only",
+ports 615 → 539 on "Process known", and the three panels confirmed collapsed
+on load.
 

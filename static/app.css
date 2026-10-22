@@ -662,6 +662,149 @@ main {
   padding: 16px 18px 18px;
 }
 
+/* Network topology */
+.net-topology {
+  position: relative;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+  padding: 8px;
+}
+.net-topology svg {
+  display: block;
+}
+.net-topo-link {
+  stroke: var(--border);
+  stroke-width: 1.5;
+  fill: none;
+}
+.net-topo-link.upstream {
+  stroke: var(--accent);
+  stroke-dasharray: 4 4;
+}
+.net-topo-link.container {
+  stroke: var(--muted);
+  stroke-dasharray: 2 3;
+}
+.net-topo-node rect {
+  fill: var(--card);
+  stroke: var(--border);
+  stroke-width: 1.5;
+  rx: 6;
+}
+.net-topo-node text {
+  fill: var(--fg);
+  font-size: 11px;
+  font-family: var(--font);
+  dominant-baseline: middle;
+}
+.net-topo-node text.sub {
+  fill: var(--muted);
+  font-size: 9.5px;
+}
+.net-topo-node.host rect {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+.net-topo-node.upstream rect {
+  stroke: var(--accent);
+  fill: var(--accent-dim);
+}
+.net-topo-node.container rect {
+  stroke: var(--muted);
+}
+.net-topo-node.down rect {
+  stroke-dasharray: 3 3;
+  opacity: 0.6;
+}
+.net-topo-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 10px;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.net-topo-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.net-topo-legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  border: 1.5px solid var(--border);
+  display: inline-block;
+}
+.net-topo-legend i.host { border-color: var(--accent); }
+.net-topo-legend i.upstream { border-color: var(--accent); background: var(--accent-dim); }
+.net-topo-legend i.container { border-color: var(--muted); }
+.net-topo-legend i.down { border-style: dashed; }
+.net-topo-legend i.port { border-color: var(--muted); border-style: dotted; }
+.net-topo-count {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Panel filter bars */
+.net-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 14px;
+}
+.net-filter-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.net-chip {
+  background: var(--card);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 0.78rem;
+  font-family: inherit;
+  cursor: pointer;
+}
+.net-chip:hover {
+  border-color: var(--accent);
+}
+.net-chip[aria-pressed="true"] {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.net-filter-select,
+.net-filter-input {
+  background: var(--card);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 5px 10px;
+  font-size: 0.82rem;
+  font-family: inherit;
+}
+.net-filter-input {
+  min-width: 180px;
+}
+.net-filter-select:focus,
+.net-filter-input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+.net-filter-count {
+  margin-left: auto;
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
 /* Packages & updates */
 .pkg-commands {
   display: grid;

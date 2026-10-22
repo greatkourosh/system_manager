@@ -21,6 +21,7 @@ The canonical app is a **Flask application** (`system_manager/`) that mounts fea
 │  ├─ inventory/     — hardware inventory blueprint + SQLite   │
 │  ├─ packages/      — host dpkg/apt indexes, read-only        │
 │  ├─ network_manager/ — host net, parsed from /host/proc/1/net │
+│  │                  + topology: sysfs links, procfs containers │
 │  ├─ connectivity.py — opt-in gateway/DNS/HTTPS probes        │
 │  ├─ notifier.py    — 5-min thread, notify-send per new cond. │
 │  └─ __init__.py    — create_app(), /, /api/status, /modules  │
@@ -57,6 +58,45 @@ shell out to `ip` and read `/etc/resolv.conf` unprefixed, so they report the
 container's view. The `/network` page needs the host's, and parses
 `/host/proc/1/net/*` instead — see `network_manager/hostnet.py` for why
 `/host/proc/net/*` cannot work and `nsenter` is unavailable.
+
+### `network_manager/topology.py` — What Is Attached To What
+
+`/host/proc/1/net/*` says what addresses exist and where traffic goes, but
+not what is *plugged into* what: procfs records no interface's kind, no
+bridge membership and no containers. The topology collector reads the three
+places that do.
+
+| What | Where | How |
+|------|-------|-----|
+| interface kind | `/host/sys/class/net/<if>/` | a `brif` directory means a bridge, a `master` symlink means enslaved to one, a `device` symlink means real hardware |
+| bridge membership | `/host/sys/class/net/<br>/brif/` | one directory per enslaved interface |
+| which processes are containers | `/host/proc/<pid>/status` | `NSpid` ends in `1` for a nested namespace's init |
+| which container | `/host/proc/<pid>/cgroup` | `docker-<64 hex>.scope`, in either cgroup version |
+| a container's addresses | `/host/proc/<pid>/net/fib_trie` | the `/32` LOCAL entries of *its* namespace |
+
+**What this cannot recover, and why it matters.** Docker keeps the name a
+container was started with in its own database, which is not mounted, and a
+container's hostname is its id — so a container is labelled by the process it
+runs. Which veth belongs to which container is also unrecoverable: the
+container side of the pair hides its ifindex behind a permission the
+container process owns, the host side's MAC is not the container's, and the
+bridge forwarding database is not readable. A container is therefore attached
+to the bridge its address *routes through*, which the routing table does
+state, and not to a named veth.
+
+A container started with the host's network namespace holds the host's own
+addresses; it is reported with `host_network` true and drawn beside the host
+rather than behind one of its interfaces. One whose address matches no
+subnet route is reported as `no route to it` rather than dropped, so a
+container the user can see running is never missing from the graph.
+
+On the page, the graph draws the host, its interfaces, the containers behind
+each bridge and the default route. Bridge ports and down interfaces are
+hidden by default — a host keeps one port per attached container and the
+bridges of containers that have stopped, and there are usually more of those
+than anything else — with a checkbox for each. The Interfaces, Routes and
+Listening Ports panels start collapsed and carry filter chips; a filter
+changes what is shown, never what is fetched.
 
 ### `connectivity_checks()` — Opt-In Active Probes
 
@@ -273,7 +313,7 @@ Run: `cd tests && PYTHONPATH=<repo root> python3 -m unittest discover` (277 test
 `port.is_integer()`, which is 3.12+; on 3.11 it takes the `except AttributeError`
 branch and returns `None` for every valid URL, which fails 8 connectivity tests
 and reads exactly like a DNS problem.
-Test modules: `test_server.py` (19 — collectors, cache and actions), `test_connectivity.py` (11 — config, scan cadence, endpoint validation, API auth), `test_flask_app.py` (18 — Flask auth, approval flow, subprocess env), `test_lock.py` (21 — module blueprint gating, and the organizer's rendered URLs: nav prefixes, the `U` endpoint map, and that no page still calls a bare `/api/…`), `test_inventory.py` (5 — store + API), `test_packages.py` (29 — version ordering, index parsing, the page), `test_notifier.py` (17 — condition derivation, announce-once, retry, API auth), `test_journal.py` (28 — entry parsing, filter safety, the mount-error path, auth), `test_thresholds.py` (24 — configurable notification thresholds), `test_tag_detect.py` (11 — music tag detection: the nested layout, genre needle boundaries, no placeholder fallback), `test_network.py` (63 — hostnet parsing (two IPv6 byte orders, longest-prefix attribution, `source` values), socket inode attribution, the ARP neighbour table, and the network page's script/markup agreement), `test_music_page.py` (16 — the Music library's grouping modes, filters and paging, the folder-cover endpoint's refusal to serve a path outside the Music root, and the untagged fixer's accept rule), `test_music_tags_needs_only.py` (6 — the tags page's folder filter). These sum to 268, and the two host-side modules below bring the suite to 277.
+Test modules: `test_server.py` (19 — collectors, cache and actions), `test_connectivity.py` (11 — config, scan cadence, endpoint validation, API auth), `test_flask_app.py` (18 — Flask auth, approval flow, subprocess env), `test_lock.py` (21 — module blueprint gating, and the organizer's rendered URLs: nav prefixes, the `U` endpoint map, and that no page still calls a bare `/api/…`), `test_inventory.py` (5 — store + API), `test_packages.py` (29 — version ordering, index parsing, the page), `test_notifier.py` (17 — condition derivation, announce-once, retry, API auth), `test_journal.py` (28 — entry parsing, filter safety, the mount-error path, auth), `test_thresholds.py` (24 — configurable notification thresholds), `test_tag_detect.py` (11 — music tag detection: the nested layout, genre needle boundaries, no placeholder fallback), `test_network.py` (80 — hostnet parsing (two IPv6 byte orders, longest-prefix attribution, `source` values), socket inode attribution, the ARP neighbour table, the topology collector (interface kinds, bridge membership, container identity, host-network and unroutable containers), and the network page's script/markup agreement — including the page's own script, run under node against a DOM stub, so a template edit that breaks the page fails here rather than in a browser), `test_music_page.py` (34 — the Music library's grouping modes, filters and paging, the folder-cover endpoint's refusal to serve a path outside the Music root, and the untagged fixer's accept rule), `test_music_tags_needs_only.py` (6 — the tags page's folder filter), `test_fetch_subtitles.py` (4), `test_video_catalog.py` (5). These sum to 312, which is the whole suite.
 
 The organizer's host-side tests (`test_fetch_subtitles.py`, `test_video_catalog.py`, `test_tag_detect.py`) live in `tests/` with the rest and run in the same suite.
 

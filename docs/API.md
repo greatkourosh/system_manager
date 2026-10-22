@@ -6,14 +6,14 @@ Base URL: `http://localhost:4000/` (container, gunicorn) or `http://127.0.0.1:82
 
 All API endpoints except `/`, `/api/login`, `/api/logout` require a valid session cookie when auth is enabled.
 
-The module blueprints (`/inventory/*`, `/organizer/*`, `/packages/*`, `/logs/*`) enforce the same rule through a shared `before_request` hook. A locked request is answered according to the caller's `Accept` header:
+The module blueprints (`/inventory/*`, `/organizer/*`, `/packages/*`, `/logs/*`, `/network/*`) enforce the same rule through a shared `before_request` hook. A locked request is answered according to the caller's `Accept` header:
 
 | Caller | Response |
 |--------|----------|
 | Browser navigation (`Accept: text/html`) | `302` redirect to `/`, which hosts the unlock form |
 | Fetch/JSON (`Accept: application/json`) | `401` with `{"error": "Unlock this dashboard with the local access code."}` |
 
-This covers the inventory CRUD, builds, topology, export/import, and qr routes, the `/packages` and `/logs` pages, as well as every organizer route, including its POST forms for file operations. The dashboard (`/`), `/health`, and static assets are never gated.
+This covers the inventory CRUD, builds, topology, export/import, and qr routes, the `/packages`, `/logs` and `/network` pages, as well as every organizer route, including its POST forms for file operations. The dashboard (`/`), `/health`, and static assets are never gated.
 
 ### Headers Required
 ```
@@ -450,10 +450,18 @@ otherwise be indistinguishable from a quiet host.
 > an empty log.
 
 ### `GET /network/`
-**Auth required.** The network page, as HTML — a summary line plus interfaces,
-routes, DNS servers, listening ports, the IPv4 neighbour table and conntrack,
-each filled by the accompanying JSON endpoints below. Like `/packages/` and
-`/logs/`, it takes no query parameters and changes nothing.
+**Auth required.** The network page, as HTML — a summary line, a topology
+graph of what is attached to what, then interfaces, routes, DNS servers,
+listening ports, the IPv4 neighbour table and conntrack, each filled by the
+accompanying JSON endpoints below. Like `/packages/` and `/logs/`, it takes no
+query parameters and changes nothing.
+
+The Interfaces, Routes and Listening Ports panels start collapsed, and each
+carries a filter bar: preset chips (All, Up only, IPv4, IPv6, Has traffic for
+interfaces; All, Default only, IPv4, IPv6, With gateway for routes; All, TCP,
+UDP, Externally reachable, Loopback only, Privileged, Process known for
+ports), a kind or source dropdown, and a text search. The filters change what
+is shown, never what is fetched.
 
 ### `GET /network/summary`
 **Auth required.** Counts for the summary line.
@@ -478,7 +486,8 @@ summary so the counts can never be read as more than they are.
 ```
 Addresses are bare, without a prefix length — procfs stores host addresses, not
 the network's prefix. `type` is always `unknown`: procfs does not record an
-interface's type.
+interface's type. `GET /network/topology` reports the kind anyway, read from
+sysfs, where the kernel does record it.
 
 ### `GET /network/routes`
 **Auth required.** The routing table, unfiltered, IPv4 and IPv6.
@@ -532,6 +541,71 @@ as missing data.
 Ports in this table are hex, and are decoded. Empty when the kernel exposes no
 `/proc/net/nf_conntrack`; the page says so rather than showing a blank table.
 
+### `GET /network/topology`
+**Auth required.** The host's network as a graph: what is attached to what.
+```json
+{"host": "kourosh-pc", "scope": "the host", "containers": 25,
+ "nodes": [
+  {"id": "host", "kind": "host", "label": "kourosh-pc", "depth": 0,
+   "detail": "the host"},
+  {"id": "iface:eno1", "kind": "interface", "subtype": "physical",
+   "label": "eno1", "state": "UP", "depth": 1,
+   "addresses": ["192.168.1.13"], "mtu": 1500, "master": ""},
+  {"id": "iface:br-10b47f13e607", "kind": "interface", "subtype": "bridge",
+   "label": "br-10b47f13e607", "state": "UP", "depth": 1,
+   "addresses": ["172.22.0.1"], "members": ["veth0fe2367"],
+   "member_count": 1, "master": ""},
+  {"id": "container:0a4eae8d90ca", "kind": "container", "label": "ollama",
+   "container_id": "0a4eae8d90ca", "pid": 12999, "depth": 2,
+   "addresses": ["172.22.0.6"], "device": "br-10b47f13e607",
+   "command": "/bin/ollama serve"},
+  {"id": "upstream", "kind": "upstream", "label": "Internet", "depth": 2,
+   "gateway": "192.168.1.1", "device": "eno1",
+   "detail": "via 192.168.1.1 on eno1"}],
+ "links": [
+  {"source": "host", "target": "iface:eno1", "kind": "attach"},
+  {"source": "iface:br-10b47f13e607", "target": "container:0a4eae8d90ca",
+   "kind": "container"}]}
+```
+`kind` is `host`, `interface`, `container` or `upstream`. An interface's
+`subtype` is `physical`, `bridge`, `port` (enslaved to a bridge), `loopback`
+or `virtual`. `depth` is the number of hops from the host.
+
+**Where the structure comes from.** procfs does not record an interface's
+kind, so this is read from sysfs instead: a `brif` directory means the
+interface is a bridge, a `master` symlink means it is enslaved to one, and a
+`device` symlink means real hardware is behind it.
+
+**Where the containers come from.** A container's init is the only process
+whose `NSpid` ends in `1`, its cgroup names the docker container, and its
+`net/fib_trie` holds the addresses of its network namespace. A container
+started with the host's network namespace holds the host's own addresses; it
+is reported with `host_network` true and drawn beside the host rather than
+behind one of its interfaces.
+
+**What is not recoverable.** The *name* a container was started with lives in
+docker's own database, which is not mounted, and a container's hostname is
+its id, so a container is labelled by the process it runs. Which veth
+belongs to which container is also not recoverable: the container side of
+the pair hides its ifindex behind a permission the container process owns,
+the host side's MAC is not the container's, and the bridge forwarding
+database is not readable. Containers are therefore attached to the bridge
+their address routes through, which the routing table does state.
+
+A container whose address matches no subnet route carries `detail` `no route
+to it` and is linked to the host rather than to an interface, so a container
+the user can see running is never missing from the graph. One sharing the
+host's network namespace has `host_network` true, an empty `addresses` and
+`detail` `shares the host's network`.
+
+**On the page.** The graph draws the host, its interfaces, the containers
+behind each bridge and the default route. Bridge ports and down interfaces
+are hidden by default — a host keeps one port per attached container and the
+bridges of containers that have stopped, and there are usually more of those
+than anything else — with a checkbox for each. The Interfaces, Routes and
+Listening Ports panels start collapsed and carry filter chips; a filter
+changes what is shown, never what is fetched.
+
 ### `GET /network/neighbors`
 **Auth required.** The IPv4 neighbour (ARP) cache, from `/proc/{1,}/net/arp`.
 ```json
@@ -550,7 +624,7 @@ there.
 **IPv6 neighbours are not included.** This kernel exposes no `ndisc_cache`, and
 the page says so rather than rendering an empty table. Empty array when the host
 has no `arp` file or no `/host` mount at all — every procfs collector returns an
-empty list rather than failing, because the page fetches all seven endpoints in
+empty list rather than failing, because the page fetches all eight endpoints in
 one `Promise.all` and one failure would blank the whole page.
 
 > **Where the data comes from.** Every collector parses procfs through

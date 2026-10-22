@@ -11,6 +11,38 @@
 
 <div id="summary"><p class="muted">Loading summary&hellip;</p></div>
 
+<details class="network-panel" id="topology-panel" open>
+  <summary>Network Topology</summary>
+  <div class="panel-body">
+    <p class="muted">
+      What is attached to what, read from the kernel's own view of the host:
+      sysfs for the link structure, procfs for the containers behind it.
+    </p>
+    <div class="net-topology" id="topology">
+      <p class="muted">Loading topology&hellip;</p>
+    </div>
+    <div class="net-filters" style="margin: 10px 0 0;">
+      <label class="net-filter-label" for="topology-ports">
+        <input type="checkbox" id="topology-ports"> Show bridge ports
+      </label>
+      <label class="net-filter-label" for="topology-inactive">
+        <input type="checkbox" id="topology-inactive"> Show down interfaces
+      </label>
+      <span class="muted">A bridge carries one port per attached container, and a host keeps the bridges of containers that have stopped. Both are hidden by default because there are usually more of them than anything else.</span>
+    </div>
+    <div class="net-topo-legend">
+      <span><i class="host"></i> Host</span>
+      <span><i></i> Interface</span>
+      <span><i class="port"></i> Bridge port</span>
+      <span><i class="container"></i> Container</span>
+      <span><i class="upstream"></i> Default route</span>
+      <span><i class="down"></i> Down</span>
+      <span class="net-topo-count" id="topology-count"></span>
+    </div>
+    <p class="muted" id="topology-note"></p>
+  </div>
+</details>
+
 <details class="network-panel" id="dns-diagnostics" open>
   <summary>DNS Diagnostics &amp; Optimizer</summary>
   <div class="panel-body">
@@ -56,9 +88,27 @@
   </div>
 </details>
 
-<details class="network-panel" open>
+<details class="network-panel" id="interfaces-panel">
   <summary>Interfaces</summary>
   <div class="panel-body">
+    <div class="net-filters" id="iface-filters">
+      <span class="net-filter-label">Show</span>
+      <button type="button" class="net-chip" data-preset="all" aria-pressed="true">All</button>
+      <button type="button" class="net-chip" data-preset="up" aria-pressed="false">Up only</button>
+      <button type="button" class="net-chip" data-preset="ipv4" aria-pressed="false">IPv4</button>
+      <button type="button" class="net-chip" data-preset="ipv6" aria-pressed="false">IPv6</button>
+      <button type="button" class="net-chip" data-preset="traffic" aria-pressed="false">Has traffic</button>
+      <select class="net-filter-select" id="iface-kind">
+        <option value="">Any kind</option>
+        <option value="bridge">Bridge</option>
+        <option value="physical">Physical</option>
+        <option value="port">Bridge port</option>
+        <option value="loopback">Loopback</option>
+        <option value="virtual">Virtual</option>
+      </select>
+      <input class="net-filter-input" id="iface-search" type="search" placeholder="Filter by name or address...">
+      <span class="net-filter-count" id="iface-count"></span>
+    </div>
     <div class="pkg-table-wrap">
       <table class="pkg-table">
         <thead><tr><th>Name</th><th>State</th><th>MAC</th><th>IPv4</th><th>IPv6</th><th>MTU</th></tr></thead>
@@ -68,9 +118,26 @@
   </div>
 </details>
 
-<details class="network-panel">
+<details class="network-panel" id="routes-panel">
   <summary>Routes</summary>
   <div class="panel-body">
+    <div class="net-filters" id="route-filters">
+      <span class="net-filter-label">Show</span>
+      <button type="button" class="net-chip" data-preset="all" aria-pressed="true">All</button>
+      <button type="button" class="net-chip" data-preset="default" aria-pressed="false">Default only</button>
+      <button type="button" class="net-chip" data-preset="ipv4" aria-pressed="false">IPv4</button>
+      <button type="button" class="net-chip" data-preset="ipv6" aria-pressed="false">IPv6</button>
+      <button type="button" class="net-chip" data-preset="gateway" aria-pressed="false">With gateway</button>
+      <select class="net-filter-select" id="route-family">
+        <option value="">Any source</option>
+        <option value="kernel">kernel</option>
+        <option value="boot">boot</option>
+        <option value="static">static</option>
+        <option value="dhcp">dhcp</option>
+      </select>
+      <input class="net-filter-input" id="route-search" type="search" placeholder="Filter by device or destination...">
+      <span class="net-filter-count" id="route-count"></span>
+    </div>
     <div class="pkg-table-wrap">
       <table class="pkg-table">
         <thead><tr><th>Destination</th><th>Gateway</th><th>Device</th><th>Source</th></tr></thead>
@@ -87,9 +154,21 @@
   </div>
 </details>
 
-<details class="network-panel">
+<details class="network-panel" id="ports-panel">
   <summary>Listening Ports</summary>
   <div class="panel-body">
+    <div class="net-filters" id="port-filters">
+      <span class="net-filter-label">Show</span>
+      <button type="button" class="net-chip" data-preset="all" aria-pressed="true">All</button>
+      <button type="button" class="net-chip" data-preset="tcp" aria-pressed="false">TCP</button>
+      <button type="button" class="net-chip" data-preset="udp" aria-pressed="false">UDP</button>
+      <button type="button" class="net-chip" data-preset="external" aria-pressed="false">Externally reachable</button>
+      <button type="button" class="net-chip" data-preset="loopback" aria-pressed="false">Loopback only</button>
+      <button type="button" class="net-chip" data-preset="privileged" aria-pressed="false">Privileged</button>
+      <button type="button" class="net-chip" data-preset="known" aria-pressed="false">Process known</button>
+      <input class="net-filter-input" id="port-search" type="search" placeholder="Filter by port or process...">
+      <span class="net-filter-count" id="port-count"></span>
+    </div>
     <div class="pkg-table-wrap">
       <table class="pkg-table">
         <thead><tr><th>Proto</th><th>Address</th><th>Port</th><th>PID</th></tr></thead>
@@ -143,6 +222,324 @@ function fill(sel, rows, cols) {
     rows.length ? rows.map(cells => '<tr>' + cells.map(text).join('') + '</tr>').join('')
                 : '<tr><td colspan="' + (cols || 9) + '" class="muted">None.</td></tr>';
 }
+
+// --- Panel filters ---------------------------------------------------------
+// Each panel keeps its own filter state and re-renders from the full row
+// set, so a filter never changes what was fetched, only what is shown.
+const ifaceState = {preset: 'all', kind: '', search: ''};
+const routeState = {preset: 'all', protocol: '', search: ''};
+const portState = {preset: 'all', search: ''};
+let ifaceRows = [], routeRows = [], portRows = [], topoData = null;
+// The interface kind lives in the topology graph, not in /network/interfaces:
+// procfs does not record what an interface is.
+let ifaceKinds = new Map();
+
+function ifaceKindOf(name) { return ifaceKinds.get(name) || ''; }
+
+function matchesIface(row) {
+  if (ifaceState.preset === 'up' && row.state !== 'UP') return false;
+  if (ifaceState.preset === 'ipv4' && !(row.ipv4 || []).length) return false;
+  if (ifaceState.preset === 'ipv6' && !(row.ipv6 || []).length) return false;
+  if (ifaceState.preset === 'traffic' &&
+      !((row.rx_bytes || 0) + (row.tx_bytes || 0))) return false;
+  if (ifaceState.kind && ifaceKindOf(row.name) !== ifaceState.kind) return false;
+  if (ifaceState.search) {
+    const needle = ifaceState.search.toLowerCase();
+    const hay = [row.name, row.state, row.mac, (row.ipv4 || []).join(' '),
+                 (row.ipv6 || []).join(' ')].join(' ').toLowerCase();
+    if (hay.indexOf(needle) === -1) return false;
+  }
+  return true;
+}
+
+function matchesRoute(row) {
+  const isDefault = row.dst === '0.0.0.0/0' || row.dst === '::/0';
+  if (routeState.preset === 'default' && !isDefault) return false;
+  if (routeState.preset === 'ipv4' && row.family !== 'inet') return false;
+  if (routeState.preset === 'ipv6' && row.family !== 'inet6') return false;
+  if (routeState.preset === 'gateway' && !row.gateway) return false;
+  if (routeState.protocol && row.protocol !== routeState.protocol) return false;
+  if (routeState.search) {
+    const needle = routeState.search.toLowerCase();
+    const hay = [row.dst, row.dev, row.gateway, row.protocol, row.family]
+      .join(' ').toLowerCase();
+    if (hay.indexOf(needle) === -1) return false;
+  }
+  return true;
+}
+
+function matchesPort(row) {
+  if (portState.preset === 'tcp' && row.proto !== 'TCP') return false;
+  if (portState.preset === 'udp' && row.proto !== 'UDP') return false;
+  if (portState.preset === 'external' &&
+      row.local_ip !== '0.0.0.0' && row.local_ip !== '::') return false;
+  if (portState.preset === 'loopback' &&
+      !(row.local_ip === '::1' || String(row.local_ip).indexOf('127.') === 0)) return false;
+  if (portState.preset === 'privileged' && !(row.local_port < 1024)) return false;
+  if (portState.preset === 'known' &&
+      (row.pid === null || row.pid === undefined)) return false;
+  if (portState.search) {
+    const needle = portState.search.toLowerCase();
+    const hay = [row.proto, row.local_ip, row.local_port, row.pid, row.exe]
+      .join(' ').toLowerCase();
+    if (hay.indexOf(needle) === -1) return false;
+  }
+  return true;
+}
+
+function setCount(id, shown, total) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = shown + ' of ' + total +
+    (shown === total ? '' : ' shown');
+}
+
+function renderIfaces() {
+  const rows = ifaceRows.filter(matchesIface);
+  fill('#ifaces', rows.map(i => [i.name, i.state, i.mac, (i.ipv4 || []).join(', '),
+                                 (i.ipv6 || []).join(', '), i.mtu]), 6);
+  setCount('iface-count', rows.length, ifaceRows.length);
+}
+
+function renderRoutes() {
+  const rows = routeRows.filter(matchesRoute);
+  fill('#routes', rows.map(r => [r.dst || 'default', r.gateway, r.dev, r.family]), 4);
+  setCount('route-count', rows.length, routeRows.length);
+}
+
+function renderPorts() {
+  const rows = portRows.filter(matchesPort);
+  const owner = p => (p.pid === null || p.pid === undefined);
+  fill('#ports', rows.map(p => [p.proto, p.local_ip, p.local_port,
+    owner(p) ? '—' : (p.pid + (p.exe ? ' (' + p.exe.split('/').pop() + ')' : ''))]), 4);
+  setCount('port-count', rows.length, portRows.length);
+  // File-descriptor directories are readable only for our own processes, so
+  // root-owned sockets stay unattributed. Say which ones, rather than leaving
+  // a column that reads like missing data.
+  const orphans = portRows.filter(owner).length;
+  document.getElementById('ports-note').textContent = orphans
+    ? 'PID is unknown for ' + orphans + ' of ' + portRows.length +
+      ' sockets: their processes run as another user, whose file descriptors are not readable.'
+    : '';
+}
+
+function wireChips(groupId, state, onChange) {
+  const group = document.getElementById(groupId);
+  if (!group) return;
+  group.querySelectorAll('.net-chip[data-preset]').forEach(chip => {
+    chip.addEventListener('click', () => {
+      state.preset = chip.dataset.preset;
+      group.querySelectorAll('.net-chip[data-preset]').forEach(other => {
+        other.setAttribute('aria-pressed', String(other === chip));
+      });
+      onChange();
+    });
+  });
+}
+
+// --- Topology graph --------------------------------------------------------
+// The graph is laid out in columns by depth: the host on the left, the
+// interfaces it owns, then whatever hangs off those.
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const NODE_W = 168, NODE_H = 40, GAP_Y = 14, PAD = 16, COL_GAP = 92;
+
+function svgEl(name, attrs) {
+  const node = document.createElementNS(SVG_NS, name);
+  for (const key in attrs) node.setAttribute(key, attrs[key]);
+  return node;
+}
+
+function topologyColumns(data, showPorts, showInactive) {
+  const columns = new Map();
+  const parentOf = new Map();
+  (data.links || []).forEach(link => parentOf.set(link.target, link.source));
+  data.nodes.forEach(node => {
+    // A bridge port is a wire, not a thing. There is one per attached
+    // container, and they drown the graph, so they are hidden unless asked
+    // for.
+    if (!showPorts && node.subtype === 'port') return;
+    // An interface that is down carries nothing, and a host keeps the
+    // bridges of containers that have stopped.
+    if (!showInactive && node.kind === 'interface' && node.state &&
+        node.state !== 'UP') return;
+    const depth = node.depth === undefined ? 1 : node.depth;
+    if (!columns.has(depth)) columns.set(depth, []);
+    columns.get(depth).push(node);
+  });
+
+  // Group each column by its parent, so a bridge's containers sit together
+  // and the lines between them do not cross the whole graph.
+  const depths = Array.from(columns.keys()).sort((a, b) => a - b);
+  depths.forEach(depth => {
+    const members = columns.get(depth);
+    const groups = new Map();
+    members.forEach(node => {
+      const parent = parentOf.get(node.id) || '';
+      if (!groups.has(parent)) groups.set(parent, []);
+      groups.get(parent).push(node);
+    });
+    groups.forEach(group => group.sort((a, b) =>
+      String(a.label).localeCompare(String(b.label))));
+    members.length = 0;
+    groups.forEach(group => members.push(...group));
+  });
+  return columns;
+}
+
+function renderTopology() {
+  const box = document.getElementById('topology');
+  if (!box) return;
+  const data = topoData;
+  if (!data || !data.nodes || !data.nodes.length) {
+    box.innerHTML = '<p class="muted">No topology to show: ' +
+      (data && data.scope ? data.scope : 'the host network is not visible') + '.</p>';
+    document.getElementById('topology-count').textContent = '';
+    return;
+  }
+  const toggle = document.getElementById('topology-ports');
+  const showPorts = !!(toggle && toggle.checked);
+  const inactiveToggle = document.getElementById('topology-inactive');
+  const showInactive = !!(inactiveToggle && inactiveToggle.checked);
+  const columns = topologyColumns(data, showPorts, showInactive);
+  const depths = Array.from(columns.keys()).sort((a, b) => a - b);
+
+  // The graph is laid out as a tree, so that a child sits directly across
+  // from the thing it hangs off. Every leaf takes one row, in the order
+  // the tree is walked, and a parent takes the middle of its children. The
+  // rows are then pushed apart where two nodes in the same column would
+  // otherwise overlap.
+  const visible = new Set();
+  columns.forEach(members => members.forEach(node => visible.add(node.id)));
+  const childrenOf = new Map();
+  const parentOf = new Map();
+  visible.forEach(id => childrenOf.set(id, []));
+  (data.links || []).forEach(link => {
+    if (!visible.has(link.source) || !visible.has(link.target)) return;
+    childrenOf.get(link.source).push(link.target);
+    parentOf.set(link.target, link.source);
+  });
+
+  // Lay the tree out bottom-up: every leaf takes the next free row, and a
+  // parent is centred on its children. A subtree is placed as a block, so
+  // two branches never overlap.
+  const rowOf = new Map();
+  let cursor = 0;
+  const place = (id) => {
+    if (rowOf.has(id)) return rowOf.get(id);
+    const kids = (childrenOf.get(id) || []).filter(kid => !rowOf.has(kid));
+    if (!kids.length) {
+      rowOf.set(id, cursor++);
+      return rowOf.get(id);
+    }
+    const rows = kids.map(place);
+    const first = rows[0], last = rows[rows.length - 1];
+    rowOf.set(id, (first + last) / 2);
+    // The block runs to the bottom of the last child.
+    cursor = Math.max(cursor, last + 1);
+    return rowOf.get(id);
+  };
+  depths.forEach(depth => {
+    columns.get(depth).forEach(node => {
+      if (!parentOf.has(node.id)) place(node.id);
+    });
+  });
+  // Anything still unplaced (an orphan) just goes on the end.
+  depths.forEach(depth => columns.get(depth).forEach(node => place(node.id)));
+
+  const positions = new Map();
+  depths.forEach((depth, columnIndex) => {
+    const members = columns.get(depth);
+    const x = PAD + columnIndex * (NODE_W + COL_GAP);
+    // Push the column apart so no two boxes in it overlap.
+    let placed = -Infinity;
+    members.slice()
+      .sort((a, b) => rowOf.get(a.id) - rowOf.get(b.id))
+      .forEach(node => {
+        const row = Math.max(rowOf.get(node.id), placed + 1);
+        positions.set(node.id, {x: x, y: row * (NODE_H + GAP_Y) + PAD, node: node});
+        placed = row;
+      });
+  });
+  const height = Math.max(
+    ...Array.from(positions.values()).map(pos => pos.y + NODE_H)) + PAD;
+
+  const width = PAD * 2 + depths.length * NODE_W + (depths.length - 1) * COL_GAP;
+  const svg = svgEl('svg', {
+    width: width, height: height, viewBox: '0 0 ' + width + ' ' + height,
+    role: 'img', 'aria-label': 'Network topology of ' + (data.host || 'the host')
+  });
+
+  // Links first, so the nodes sit on top of them.
+  (data.links || []).forEach(link => {
+    const from = positions.get(link.source), to = positions.get(link.target);
+    if (!from || !to) return;
+    const x1 = from.x + NODE_W, y1 = from.y + NODE_H / 2;
+    const x2 = to.x, y2 = to.y + NODE_H / 2;
+    const mid = (x1 + x2) / 2;
+    svg.appendChild(svgEl('path', {
+      d: 'M' + x1 + ' ' + y1 + ' C' + mid + ' ' + y1 + ' ' + mid + ' ' + y2 +
+         ' ' + x2 + ' ' + y2,
+      class: 'net-topo-link ' + (link.kind || '')
+    }));
+  });
+
+
+  positions.forEach(pos => {
+    const node = pos.node;
+    const group = svgEl('g', {class: 'net-topo-node ' + (node.kind || '') +
+      (node.subtype ? ' ' + node.subtype : '') +
+      (node.state && node.state !== 'UP' ? ' down' : '')});
+    group.appendChild(svgEl('rect', {x: pos.x, y: pos.y, width: NODE_W, height: NODE_H}));
+
+    // A bridge's port count is the only trace of its members once the
+    // ports themselves are hidden, so it goes in the subtitle.
+    let detail = node.detail || '';
+    if (!detail && node.subtype === 'bridge' && node.member_count) {
+      detail = node.member_count + (node.member_count === 1 ? ' port' : ' ports');
+    }
+    if (!detail && node.kind === 'container' && node.addresses &&
+        node.addresses.length) {
+      detail = node.addresses.join(', ');
+    }
+    const label = svgEl('text', {x: pos.x + 10, y: pos.y + (detail ? 15 : NODE_H / 2)});
+    label.textContent = node.label || node.id;
+    group.appendChild(label);
+
+    if (detail) {
+      const sub = svgEl('text', {x: pos.x + 10, y: pos.y + 28, class: 'sub'});
+      sub.textContent = detail;
+      group.appendChild(sub);
+    }
+    const title = svgEl('title', {});
+    // The process name the kernel reports is capped at 15 characters, so the
+    // full command line goes in the tooltip.
+    const bits = [node.kind === 'container' ? 'container' : node.kind,
+                  node.label];
+    if (node.container_id) bits.push('id ' + node.container_id);
+    if (node.command) bits.push(node.command);
+    if (node.addresses && node.addresses.length) bits.push(node.addresses.join(', '));
+    if (node.gateway) bits.push('via ' + node.gateway);
+    title.textContent = bits.join(' — ');
+    group.appendChild(title);
+    svg.appendChild(group);
+  });
+
+  box.innerHTML = '';
+  box.appendChild(svg);
+  const counts = {interface: 0, container: 0};
+  data.nodes.forEach(node => { if (counts[node.kind] !== undefined) counts[node.kind]++; });
+  const ports = data.nodes.filter(n => n.subtype === 'port').length;
+  const down = data.nodes.filter(n => n.kind === 'interface' && n.state &&
+                                    n.state !== 'UP').length;
+  document.getElementById('topology-count').textContent =
+    counts.interface + ' interfaces, ' + counts.container + ' containers' +
+    (showPorts ? '' : ', ' + ports + ' bridge ports hidden') +
+    (showInactive ? '' : ', ' + down + ' down interfaces hidden');
+  document.getElementById('topology-note').textContent =
+    'Containers are shown on the bridge their address routes through. ' +
+    'Docker keeps the name each container was started with in its own ' +
+    'database, which is not visible here, so a container is labelled by the ' +
+    'process it runs.';
+}
 let latestDnsResults = null;
 let selectedDnsPair = null;
 function renderCurrentDnsSetup(servers, source, resolverServers) {
@@ -194,8 +591,8 @@ async function runDnsDiagnostics() {
     provider.timeouts || 0,
   ]), 6);
 }
-Promise.all([get('/summary'), get('/interfaces'), get('/routes'), get('/dns'), get('/ports'), get('/conntrack'), get('/neighbors')])
-  .then(([sum, ifs, rts, dns, ports, ct, nbrs]) => {
+Promise.all([get('/summary'), get('/interfaces'), get('/routes'), get('/dns'), get('/ports'), get('/conntrack'), get('/neighbors'), get('/topology')])
+  .then(([sum, ifs, rts, dns, ports, ct, nbrs, topo]) => {
     document.getElementById('summary').innerHTML =
       '<p class="muted"><strong>' + sum.hostname.hostname + '</strong> &mdash; ' +
       sum.interfaces + ' interfaces, ' + sum.routes + ' routes, ' +
@@ -203,23 +600,23 @@ Promise.all([get('/summary'), get('/interfaces'), get('/routes'), get('/dns'), g
       ((sum.dns_servers || []).join(', ') || 'none') +
       '</p><p class="muted">Source: ' + (sum.source || 'unknown') + '.</p>';
     renderCurrentDnsSetup(dns.servers || [], dns.source, dns.resolver_servers || []);
-    fill('#ifaces', ifs.map(i => [i.name, i.state, i.mac, (i.ipv4 || []).join(', '), (i.ipv6 || []).join(', '), i.mtu]), 6);
-    fill('#routes', rts.map(r => [r.dst || 'default', r.gateway, r.dev, r.family]), 4);
+    ifaceRows = ifs; routeRows = rts; portRows = ports;
+    topoData = topo;
+    // The interface kind comes from the topology graph, so the two have to
+    // arrive together; without it the kind filter has nothing to match on.
+    (topo && topo.nodes ? topo.nodes : []).forEach(node => {
+      if (node.kind === 'interface' && node.subtype) {
+        ifaceKinds.set(node.label, node.subtype);
+      }
+    });
+    renderIfaces();
+    renderRoutes();
+    renderPorts();
+    renderTopology();
     document.getElementById('dns').innerHTML =
       (dns.servers && dns.servers.length)
         ? dns.servers.map(s => '<li>' + s + '</li>').join('')
         : '<li class="muted">None.</li>';
-    const owner = p => (p.pid === null || p.pid === undefined);
-    fill('#ports', ports.map(p => [p.proto, p.local_ip, p.local_port,
-      owner(p) ? '—' : (p.pid + (p.exe ? ' (' + p.exe.split('/').pop() + ')' : ''))]), 4);
-    // File-descriptor directories are readable only for our own processes, so
-    // root-owned sockets stay unattributed. Say which ones, rather than leaving
-    // a column that reads like missing data.
-    const orphans = ports.filter(owner).length;
-    document.getElementById('ports-note').textContent = orphans
-      ? 'PID is unknown for ' + orphans + ' of ' + ports.length +
-        ' sockets: their processes run as another user, whose file descriptors are not readable.'
-      : '';
     fill('#neighbors', nbrs.map(n => [n.ip, n.mac, n.device, n.state]), 4);
     fill('#ct', ct.slice(0, 200).map(c => [c.proto, c.state, c.src_ip + ':' + c.src_port, c.dst_ip + ':' + c.dst_port]), 4);
     if (ct.length > 200) document.getElementById('ct-note').textContent = 'Showing the first 200 of ' + ct.length + ' tracked connections.';
@@ -317,5 +714,56 @@ Promise.all([get('/summary'), get('/interfaces'), get('/routes'), get('/dns'), g
   .catch(err => {
     document.getElementById('summary').innerHTML = '<p class="conn-error">Could not load network data: ' + err.message + '</p>';
   });
+
+// Filter controls are wired outside the load promise so they work the
+// moment the page is ready; the rows they filter arrive with the data.
+wireChips('iface-filters', ifaceState, renderIfaces);
+wireChips('route-filters', routeState, renderRoutes);
+wireChips('port-filters', portState, renderPorts);
+
+const topologyPorts = document.getElementById('topology-ports');
+if (topologyPorts) {
+  topologyPorts.addEventListener('change', renderTopology);
+}
+const topologyInactive = document.getElementById('topology-inactive');
+if (topologyInactive) {
+  topologyInactive.addEventListener('change', renderTopology);
+}
+
+const ifaceKindSelect = document.getElementById('iface-kind');
+if (ifaceKindSelect) {
+  ifaceKindSelect.addEventListener('change', () => {
+    ifaceState.kind = ifaceKindSelect.value;
+    renderIfaces();
+  });
+}
+const routeFamilySelect = document.getElementById('route-family');
+if (routeFamilySelect) {
+  routeFamilySelect.addEventListener('change', () => {
+    routeState.protocol = routeFamilySelect.value;
+    renderRoutes();
+  });
+}
+const ifaceSearch = document.getElementById('iface-search');
+if (ifaceSearch) {
+  ifaceSearch.addEventListener('input', () => {
+    ifaceState.search = ifaceSearch.value.trim();
+    renderIfaces();
+  });
+}
+const routeSearch = document.getElementById('route-search');
+if (routeSearch) {
+  routeSearch.addEventListener('input', () => {
+    routeState.search = routeSearch.value.trim();
+    renderRoutes();
+  });
+}
+const portSearch = document.getElementById('port-search');
+if (portSearch) {
+  portSearch.addEventListener('input', () => {
+    portState.search = portSearch.value.trim();
+    renderPorts();
+  });
+}
 </script>
 {% endblock %}
