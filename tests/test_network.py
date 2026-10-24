@@ -930,6 +930,20 @@ class TopologyTests(unittest.TestCase):
         links = {(link["source"], link["target"]) for link in graph["links"]}
         self.assertIn(("host", "container:" + "d" * 12), links)
 
+    def test_the_docker_name_wins_over_the_process_comm(self):
+        """A container started by docker carries its real name in the socket;
+        the process name is a fallback for when the socket is absent."""
+        meta = {"a" * 12: {"name": "ollama", "project": "models"}}
+        with FakeHost(route=ROUTE, fib_trie=FIB_TRIE) as host:
+            host.container(4242, "a" * 64, comm="python3",
+                           addresses=["172.22.0.2"], cmdline="/usr/bin/python3 -m ollama.serve")
+            with mock.patch.object(
+                    topology.docker_meta_module, "container_meta", return_value=meta):
+                graph = topology.topology()
+        containers = [node for node in graph["nodes"] if node["kind"] == "container"]
+        self.assertEqual(containers[0]["label"], "ollama")
+        self.assertEqual(containers[0]["project"], "models")
+
     def test_a_container_sharing_the_host_network_is_not_put_on_a_bridge(self):
         with FakeHost(route=ROUTE, fib_trie=FIB_TRIE) as host:
             host.bridge("docker0")

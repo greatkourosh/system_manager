@@ -815,7 +815,7 @@ made the scanner emit every episode in `videos[]` instead of one sample;
 Milestone 5 completed in `d1ac423`. The 2026-09-26 verification pass
 (Milestone 6) was documentation-only. A later pass on the same day fixed four
 container/host bugs — see the Milestone 7 entry, and Milestone 9 below.
-**317 tests pass, 0 failures** (2026-10-24; was 277 on 2026-10-20).
+**318 tests pass, 0 failures** (2026-10-24; was 277 on 2026-10-20).
 
 The sibling checkout (`../folder_organizer`) is clean through `35c6f62`. It
 spent the whole of Milestone 18 and 19's aftermath with 27 files uncommitted —
@@ -1876,9 +1876,16 @@ proposal" under the old detector, and that fixture now proposes a title. A
 filename that is only a track number (`001).mp3`) carries no evidence at
 all, so the failure-link tests keep their meaning.
 
-**317 tests pass** (2026-10-24), 2 of them new in
+**318 tests pass** (2026-10-24), 2 of them new in
 `tests/test_tag_detect.py` (`read a split filename`, `no split gives only a
 title`, and the folder-name guard folded into the first). Both were red
 before the detection change. The Music test suite (`test_music_page.py`)
 needed the fixture correction above but no logic change.
+
+One more, committed the same day: a topology container's *name* now comes
+from the docker socket when it is there, falling back to the process `comm`
+only when it is not. The container tests mock `docker_meta.container_meta`
+for it (`test_the_docker_name_wins_over_the_process_comm`), so this is
+**318 tests**. Flagged because it arrived in the working tree already made
+rather than written here.
 

@@ -187,7 +187,10 @@ def _containers():
         entry = found.setdefault(container_id, {
             "id": container_id,
             "pid": int(pid),
-            "name": _read(_host_proc(pid, "comm")).strip(),
+            # The docker name is the real label; the process name falls back
+            # when the socket is absent, but a container named by docker is
+            # always preferred.
+            "name": meta.get("name") or _read(_host_proc(pid, "comm")).strip(),
             "command": _read(_host_proc(pid, "cmdline")).replace("\0", " ").strip(),
             "addresses": [],
             "project": meta.get("project", ""),

@@ -111,7 +111,7 @@
     </div>
     <div class="pkg-table-wrap">
       <table class="pkg-table">
-        <thead><tr><th>Name</th><th>State</th><th>MAC</th><th>IPv4</th><th>IPv6</th><th>MTU</th></tr></thead>
+        <thead><tr><th>Name</th><th>State</th><th>MAC</th><th>IPv4</th><th>IPv6</th><th>MTU</th><th>Traffic</th></tr></thead>
         <tbody id="ifaces"></tbody>
       </table>
     </div>
@@ -230,6 +230,9 @@ const ifaceState = {preset: 'all', kind: '', search: ''};
 const routeState = {preset: 'all', protocol: '', search: ''};
 const portState = {preset: 'all', search: ''};
 let ifaceRows = [], routeRows = [], portRows = [], topoData = null;
+let pollInterval = null;
+// Last sample per interface (name -> {rx, tx, t}), for the traffic column.
+const ratePrev = {};
 // The interface kind lives in the topology graph, not in /network/interfaces:
 // procfs does not record what an interface is.
 let ifaceKinds = new Map();
@@ -293,10 +296,26 @@ function setCount(id, shown, total) {
     (shown === total ? '' : ' shown');
 }
 
+function rateLine(i) {
+  // Two samples of the byte counters, a second or more apart, give the
+  // traffic rate. An interface that has since disappeared (or a counter
+  // that wrapped) reports nothing rather than a nonsense number.
+  const prev = ratePrev[i.name];
+  if (!prev || prev.rx > i.rx_bytes || prev.tx > i.tx_bytes) return '—';
+  const dt = (Date.now() - prev.t) / 1000;
+  if (dt <= 0) return '—';
+  const rx = (i.rx_bytes - prev.rx) / dt;
+  const tx = (i.tx_bytes - prev.tx) / dt;
+  const rate = v => v >= 1048576 ? (v / 1048576).toFixed(1) + ' MB/s'
+              : v >= 1024 ? Math.round(v / 1024) + ' KB/s'
+              : Math.round(v) + ' B/s';
+  return '↓' + rate(rx) + ' ↑' + rate(tx);
+}
+
 function renderIfaces() {
   const rows = ifaceRows.filter(matchesIface);
   fill('#ifaces', rows.map(i => [i.name, i.state, i.mac, (i.ipv4 || []).join(', '),
-                                 (i.ipv6 || []).join(', '), i.mtu]), 6);
+                                 (i.ipv6 || []).join(', '), i.mtu, rateLine(i)]), 7);
   setCount('iface-count', rows.length, ifaceRows.length);
 }
 
@@ -618,6 +637,17 @@ Promise.all([get('/summary'), get('/interfaces'), get('/routes'), get('/dns'), g
     renderRoutes();
     renderPorts();
     renderTopology();
+    // Seed the rate tracker so a later poll reads a delta, not the absolute
+    // counters.
+    ifaceRows.forEach(i => { ratePrev[i.name] = {rx: i.rx_bytes, tx: i.tx_bytes, t: Date.now()}; });
+    // Refresh every two seconds so live traffic shows without a page reload.
+    pollInterval = setInterval(() => {
+      get('/interfaces').then(fresh => {
+        ifaceRows = fresh;
+        renderIfaces();
+        fresh.forEach(i => { ratePrev[i.name] = {rx: i.rx_bytes, tx: i.tx_bytes, t: Date.now()}; });
+      }).catch(() => {});
+    }, 2000);
     document.getElementById('dns').innerHTML =
       (dns.servers && dns.servers.length)
         ? dns.servers.map(s => '<li>' + s + '</li>').join('')
