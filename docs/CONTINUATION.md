@@ -803,10 +803,11 @@ written; `scripts/` does not exist in this project.
 
 ## Git Status
 
-Clean through `b8c6e77` ("feat: read Artist - Title from flat-folder
-filenames", Milestone 26), `a8b09a1` (Milestone 25), `96b3302` (Milestone 24),
-and `a1991d9` ("feat: DNS benchmarking and dnsmasq-backed resolver control on
-/network", Milestone 21 and the Music page work). The working tree is clean.
+Clean through `128be03` ("feat: flat-folder tracks now get artist/album/year
+from MusicBrainz", Milestone 27), `b8c6e77` (Milestone 26), `a8b09a1`
+(Milestone 25), `96b3302` (Milestone 24), and `a1991d9` ("feat: DNS
+benchmarking and dnsmasq-backed resolver control on /network", Milestone 21
+and the Music page work). The working tree is clean.
 Milestone 15 (the organizer as a real blueprint) is `4f5f00b`. The sibling
 checkout is clean through `35c6f62`: `fa55804` dropped 23 dead
 `video_library*.json` variants, `ee169fb` added the Oct 1–5 host tooling
@@ -815,7 +816,7 @@ made the scanner emit every episode in `videos[]` instead of one sample;
 Milestone 5 completed in `d1ac423`. The 2026-09-26 verification pass
 (Milestone 6) was documentation-only. A later pass on the same day fixed four
 container/host bugs — see the Milestone 7 entry, and Milestone 9 below.
-**318 tests pass, 0 failures** (2026-10-24; was 277 on 2026-10-20).
+**319 tests pass, 0 failures** (2026-10-24; was 277 on 2026-10-20).
 
 The sibling checkout (`../folder_organizer`) is clean through `35c6f62`. It
 spent the whole of Milestone 18 and 19's aftermath with 27 files uncommitted —
@@ -1888,4 +1889,39 @@ only when it is not. The container tests mock `docker_meta.container_meta`
 for it (`test_the_docker_name_wins_over_the_process_comm`), so this is
 **318 tests**. Flagged because it arrived in the working tree already made
 rather than written here.
+
+### 2026-10-24 — Milestone 27: flat-folder tracks get artist/album/year from MusicBrainz
+
+Milestone 26 taught the detector to read a flat folder's filename — the
+Turkish folder sits one level below `Music/`, so `tag_detect.py` had never
+proposed anything for it. What the filename alone cannot answer is *who
+recorded it*: `001) Aija Alsina - Awakening.mp3` names both halves, but a
+bare `01) Hayat Sana Guzel.mp3` names only the song. That remaining gap is
+now closed by asking MusicBrainz.
+
+**The fill only ever fires when the artist field is still empty.** A
+filename that already carried `Artist - Title` (12 of the Turkish folder's
+36 tracks) keeps its filename-split artist untouched, because a filename's
+middle section is evidence a recording search is not entitled to override —
+and a junk artist tag on the file (`Bivafa_Va_Parsa20@Yahoo.Com`) is not
+consulted. `_fill_tags_from_musicbrainz(proposed, by_path)`, called right
+after `propose_for` in `/api/music/fix-untagged`, collects the proposals
+whose filename gave a title but no artist, runs them through
+`mb_lookup.lookup_recordings()` (already committed in Milestone 26, the
+"not yet wired" note there is closed now), and fills **artist, album and
+year** at med confidence from the recording's credited artist, first
+release's album and date. The same cap as the year fallback —
+`TRACK_FALLBACK_MAX` — stops one big group turning into minutes of
+per-track requests; a group over the cap stays as the filename alone made
+it.
+
+**For the Turkish folder the two halves meet in the middle.** 12 of 36
+files carry `Artist - Title` in the name and need no lookup; the other 24
+get artist/album/year answered by MusicBrainz on their title. `fix-untagged`
+already auto-accepts at med confidence, so one click writes both kinds.
+
+**319 tests pass** (2026-10-24). The new `RecordingTagFillTests` in
+`tests/test_music_page.py` mocks the recording search and asserts the
+artist/album/year land on an empty-artist proposal; it was confirmed to
+fail against the unfilled path. Pushed as `128be03`.
 
