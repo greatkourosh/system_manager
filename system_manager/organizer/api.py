@@ -1364,6 +1364,57 @@ def _fill_years_from_musicbrainz(proposed, by_path):
         entry["fields"]["year"] = {"value": cand["year"], "source": "musicbrainz",
                                    "overwrite": False, "confidence": "med"}
 
+def _fill_tags_from_musicbrainz(proposed, by_path):
+    """Fill an empty artist/album (and a still-low year) from the recording lookup.
+
+    The filename is usually the only source a flat folder like `Turkish`
+    has: it proposes the title, and an "Artist - Title" name proposes the
+    artist too. But a filename is not proof of who performed it, and the tag
+    on the file may be junk (`Bivafa_Va_Parsa20@Yahoo.Com` on this very
+    library), so the credited artist from MusicBrainz is a better answer
+    whenever the artist field is still empty in the proposal.
+
+    Each track costs a request and MusicBrainz allows one a second, so the
+    lookup is capped the same way the year fallback is: a large group stays
+    as-is rather than turning into minutes of waiting.
+    """
+    from . import mb_lookup
+    records = []
+    for path, entry in proposed.items():
+        fields = entry.get("fields", {})
+        title = (fields.get("title") or {}).get("value", "")
+        if not title:
+            continue
+        artist = (fields.get("artist") or {}).get("value", "")
+        if artist:
+            # A proposed artist is read straight off the filename and needs
+            # no correction; fill only when the proposal has none to offer.
+            continue
+        records.append({"artist": "", "title": title})
+    if not records:
+        return
+    if len(records) > mb_lookup.TRACK_FALLBACK_MAX:
+        return
+    found = mb_lookup.lookup_recordings(records)
+    for path, entry in proposed.items():
+        fields = entry.get("fields", {})
+        title = (fields.get("title") or {}).get("value", "")
+        artist = (fields.get("artist") or {}).get("value", "")
+        if artist:
+            continue
+        cand = found.get(("", title))
+        if not cand:
+            continue
+        if not (fields.get("artist") or {}).get("value") and cand.get("artist"):
+            entry["fields"]["artist"] = {"value": cand["artist"], "source": "musicbrainz",
+                                       "overwrite": False, "confidence": "med"}
+        if not (fields.get("album") or {}).get("value") and cand.get("album"):
+            entry["fields"]["album"] = {"value": cand["album"], "source": "musicbrainz",
+                                       "overwrite": False, "confidence": "med"}
+        if not (fields.get("year") or {}).get("value") and cand.get("year"):
+            entry["fields"]["year"] = {"value": cand["year"], "source": "musicbrainz",
+                                       "overwrite": False, "confidence": "med"}
+
 @bp.route("/api/music/fix-untagged", methods=["POST"])
 def api_music_fix_untagged():
     """Propose, auto-accept and write tags for one artist/folder's untagged tracks.
@@ -1408,6 +1459,7 @@ def api_music_fix_untagged():
     proposed = tag_detect.propose_for(
         [{"path": p, "mtime": catalog_mtime.get(p)} for p in paths], by_path)
     _fill_years_from_musicbrainz(proposed, by_path)
+    _fill_tags_from_musicbrainz(proposed, by_path)
     for path, entry in proposed.items():
         old = plan["entries"].get(path, {})
         entry["accepted"] = old.get("accepted", False)

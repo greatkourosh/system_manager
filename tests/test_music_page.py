@@ -380,6 +380,24 @@ class TrackYearLookupTests(unittest.TestCase):
             found = self.mb.lookup_track_years(tracks, limit=2)
         self.assertIsNone(found[("Alpha", "Song 49")])
 
+class RecordingTagFillTests(unittest.TestCase):
+    def setUp(self):
+        from system_manager.organizer import mb_lookup
+        self.mb = mb_lookup
+        mb_lookup._recording_cache.clear()
+        mb_lookup._album_cache.clear()
+        mb_lookup._track_cache.clear()
+
+    def test_recording_lookup_fills_artist_album_year(self):
+        """A flat folder proposes the title from the filename, and the recording
+        lookup answers who recorded it, filling the fields the file is missing."""
+        with patch.object(self.mb, "_get", return_value={"recordings": [
+            {"title": "Hayat Sana Guzel", "artist-credit": [{"name": "Murat Boz"}],
+             "releases": [{"title": "Hayat Sana Güzel", "date": "2010-04-10"}]}]}):
+            found = self.mb.lookup_recordings([{"title": "Hayat Sana Guzel"}])
+        self.assertEqual(found[("", "Hayat Sana Guzel")]["artist"], "Murat Boz")
+        self.assertEqual(found[("", "Hayat Sana Guzel")]["year"], "2010")
+
 class FolderCoverTests(unittest.TestCase):
     def test_refuses_path_outside_music_root(self):
         self.assertIsNone(api._folder_cover("E:\\Windows\\System32"))
