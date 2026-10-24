@@ -36,7 +36,7 @@ Skip rules persist in `data/skip_rules.json`; selection in `data/selection_state
 ## Music tag fixer (Phase 2.5 — /music/tags)
 Workflow: **Auto-detect proposals** → review/edit → Accept → **Export fix script** → host `python apply_music_tags.py` (dry-run default, `--apply` writes) → re-run `music_tag_audit.py` to refresh stats.
 
-- Detection (`tag_detect.py` + `genre_rules.json`): artist/album from folder segments after `Music`, title from cleaned filename (junk `[site]`/`{tag}`/track numbers stripped), year from folder pattern → mtime fallback, genre from keyword rules (Persian Traditional/Religious/Pop, International Rock/Classical/Jazz, Podcast, Game Soundtrack; script-aware prefixes). Non-Music roots get genre+title only.
+- Detection (`tag_detect.py` + `genre_rules.json`): artist/album from folder segments after `Music`, title from cleaned filename (junk `[site]`/`{tag}`/track numbers stripped), year from folder pattern → mtime fallback, genre from keyword rules (Persian Traditional/Religious/Pop, International Rock/Classical/Jazz, Podcast, Game Soundtrack; script-aware prefixes). Non-Music roots get genre+title only. **Flat folders** (one level below Music, e.g. `Turkish/`, `vMusic/`) read artist and title from the filename when it follows `Artist - Title`; a bare track name gets title only.
 - Plan state: `data/tag_plan.json` keyed by path; per-field `{value, source: auto|manual|musicbrainz, overwrite, confidence}`; fill-empty-by-default; manual overwrite per-field opt-in.
 - Batch caps: max 5000 files per propose request.
 - MusicBrainz (opt-in, host): `python musicbrainz_lookup.py [--limit N]` writes `data/mb_candidates.json`; "Merge MusicBrainz" button fills empty plan fields (score ≥ 70).
@@ -54,15 +54,22 @@ Workflow: **Auto-detect proposals** → review/edit → Accept → **Export fix 
 ### Fix untagged tracks (2026-10-13)
 Clicking an untagged badge posts to `/api/music/fix-untagged`, which does the whole chain for one artist or folder:
 
-1. Proposes tags from the path (`tag_detect.propose_for`).
+1. Proposes tags from the path (`tag_detect.propose_for`). A flat folder's
+   bare track name ("01 - Hayat Sana Guzel") gives title only; an
+   "Artist - Title" one gives artist too.
 2. Looks up a **MusicBrainz release year** for any track whose year is only an mtime guess. The lookup is **per album**: one release query gives the album's date and its track list, and a track is dated only when that release lists it. `mb_lookup.py` lives inside the package because the image copies `system_manager/` wholesale; the root `musicbrainz_lookup.py` CLI still writes `data/mb_candidates.json` for the Music Tags page.
-3. Accepts a track when at least one field is high/med confidence, empty in the audit, and would not overwrite. A low-confidence field is dropped from the write, not used to veto the track.
-4. Writes the group's entries to its own `commands_to_run/tag_fix_group.json` — never the shared `tag_fix_list.json` — and runs `apply_music_tags.apply()`, which now takes the list path as an argument.
-5. **Dry run first, then a confirm, then the real write.** The button shows the dry-run summary and asks before touching any file.
-6. Folds what was written back into `data/music_tag_audit.json`, so the card's untagged count drops instead of offering the same tracks again.
-7. **A group larger than 500 tracks is done in chunks.** Reading a tag costs about 27 ms, so one request cannot cover thousands of files — the browser would give up long before the work was done. The response carries `next_offset`, and the button offers the next chunk until the group is finished.
+3. Fills an empty artist/album/year from a **recording search** for any track
+   whose filename gave a title but no artist. The credited artist wins
+   over the junk tag a burner wrote into the file (`Bivafa…` on this
+   library), but only when the proposal had no artist of its own. Capped at
+   the same 20 per group as the track-year fallback.
+4. Accepts a track when at least one field is high/med confidence, empty in the audit, and would not overwrite. A low-confidence field is dropped from the write, not used to veto the track.
+5. Writes the group's entries to its own `commands_to_run/tag_fix_group.json` — never the shared `tag_fix_list.json` — and runs `apply_music_tags.apply()`, which now takes the list path as an argument.
+6. **Dry run first, then a confirm, then the real write.** The button shows the dry-run summary and asks before touching any file.
+7. Folds what was written back into `data/music_tag_audit.json`, so the card's untagged count drops instead of offering the same tracks again.
+8. **A group larger than 500 tracks is done in chunks.** Reading a tag costs about 27 ms, so one request cannot cover thousands of files — the browser would give up long before the work was done. The response carries `next_offset`, and the button offers the next chunk until the group is finished.
 
-The container can write tags itself: it has the Music mount and `mutagen`. The lookup costs one MusicBrainz request per album, at one request per second, and the results are cached for the life of the process — so a click costs one request per album, not one per track.
+The container can write tags itself: it has the Music mount and `mutagen`. The lookups cost one MusicBrainz request per album (and one per flat-track recording) at one request per second, and the results are cached for the life of the process — so a click costs one request per album, not one per track.
 
 > The year comes from the album, not from the track. Looking a track up on its own dates it to whichever release matched its title first, which is often a live or compilation release: "Nostalgia" came back as 2020 from "Live at the Acropolis" instead of 2010 from "The Inspiring Journey", and a whole album's tracks were each dated to a different album. A track whose folder has no release of its own — a compilation — falls back to the year of the studio album it came from, but only for a handful of tracks: each fallback is another request, and an artist whose albums are all unknown to MusicBrainz (Fery, for one) would otherwise cost minutes of waiting for nothing. A track that only appears on live and compilation releases stays undated rather than being dated to a concert.
 
