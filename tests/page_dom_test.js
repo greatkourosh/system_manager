@@ -24,6 +24,12 @@ if (!pagePath) {
 function runPage() {
   const doc = buildDocument();
   const requests = [];
+  const intervals = [];
+  const clock = {t: 1_700_000_000_000};
+  const RealDate = Date;
+  const FakeDate = class extends RealDate {
+    static now() { return clock.t; }
+  };
   const sandbox = {
     document: doc,
     location: {pathname: '/network/', search: '', origin: 'http://x'},
@@ -32,8 +38,9 @@ function runPage() {
       confirm: () => true,
       addEventListener() {},
     },
+    Date: FakeDate,
     console,
-    setInterval() {},
+    setInterval(fn, ms) { intervals.push(fn); return intervals.length; },
     setTimeout() {},
     navigator: {clipboard: {writeText: () => Promise.resolve()}},
     localStorage: {getItem: () => null, setItem() {}},
@@ -59,7 +66,7 @@ function runPage() {
   fs.writeFileSync(scriptPath, code);
   vm.createContext(sandbox);
   vm.runInContext(code, sandbox, {filename: 'page.js'});
-  return {doc, sandbox, requests};
+  return {doc, sandbox, requests, intervals, clock};
 }
 
 function tick() {
@@ -82,7 +89,7 @@ function chip(doc, group, preset) {
 }
 
 (async () => {
-  const {doc, requests} = runPage();
+  const {doc, requests, intervals, clock} = runPage();
   await tick();
   await tick();
 
@@ -92,6 +99,34 @@ function chip(doc, group, preset) {
   // --- Interfaces: all four rows by default -----------------------------
   assert.strictEqual(rowCount(doc, 'ifaces'), 4, 'expected 4 interface rows');
   assert.match(doc.getElementById('iface-count').textContent, /4 of 4/);
+  // Traffic column: on first render no previous sample exists, so every
+  // row shows the em-dash placeholder rather than a rate.
+  assert.match(rowsOf(doc, 'ifaces'), /—/,
+               'traffic column did not render a placeholder on first load');
+  // No previous sample exists yet, so no rate arrow should appear.
+  assert.doesNotMatch(rowsOf(doc, 'ifaces'), /↓/,
+                      'a rate appeared before a second sample existed');
+
+  // Fire the traffic poll: bump the counters the next fetch will see, then
+  // advance the fake clock one second and run the poll. The diff over the
+  // known second must turn into a rate arrow in the table.
+  assert.ok(intervals.length >= 1, 'the traffic poller never registered');
+  FIXTURE['/network/interfaces']
+    .filter(i => i.name === 'eno1')
+    .forEach(i => { i.rx_bytes += 2048000; i.tx_bytes += 2048000; });
+  clock.t += 1000;
+  await intervals[0]();
+  await tick();
+  assert.match(rowsOf(doc, 'ifaces'), /↓2\.0 MB\/s ↑2\.0 MB\/s/,
+               'the second sample did not produce the expected rate');
+  // Traffic from counters that would wrap is shown as unknown, never as a
+  // negative number.
+  FIXTURE['/network/interfaces'].find(i => i.name === 'eno1').rx_bytes = 1;
+  clock.t += 1000;
+  await intervals[0]();
+  await tick();
+  assert.doesNotMatch(rowsOf(doc, 'ifaces'), /↓2\.0 MB\/s/,
+                      'wrapped counters should not produce a rate');
 
   // "Up only" drops the UNKNOWN loopback.
   chip(doc, 'iface-filters', 'up').dispatch('click');
