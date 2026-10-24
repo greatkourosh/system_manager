@@ -33,7 +33,7 @@ Python 3.14 slim + iproute2, net-tools, network-manager, systemd; host network +
 - **Frontend:** Jinja templates (`templates/`) + `static/app.js` with unlock, actions (approve→execute), audit, and connectivity renderers; module cards with mount-aware links; Network card holds the connectivity consent form
 - **Docker:** Dockerfile now installs Flask/gunicorn and copies the package + templates + static; compose runs `gunicorn run:app` on :4000
 - **Wiring fix:** module URLs no longer leak `?subpath=`; `inject_common` provides `env.authenticated` so the dashboard hides the unlock banner when auth is off
-- **Tests:** 59 passing — 24 `test_server.py` + 11 `test_connectivity.py` (config, scan cadence, endpoint validation, API auth) + 10 `test_flask_app.py` (auth + approval lifecycle) + 9 `test_lock.py` (module blueprint gating) + 5 `test_inventory.py` (store + API)
+- **Tests:** 59 passing at the time — full suite is now 319 passing (see ARCHITECTURE.md for the per-module breakdown).
 
 ### 2026-09-26 — Live Verification Pass (Milestone 6, docs only)
 Ran the full suite (59 pass) and exercised the running container end-to-end
