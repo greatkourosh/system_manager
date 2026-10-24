@@ -99,6 +99,9 @@ function chip(doc, group, preset) {
   // --- Interfaces: all four rows by default -----------------------------
   assert.strictEqual(rowCount(doc, 'ifaces'), 4, 'expected 4 interface rows');
   assert.match(doc.getElementById('iface-count').textContent, /4 of 4/);
+  // The bridge row names the container project behind it.
+  assert.match(rowsOf(doc, 'ifaces'), /app_stack/,
+               'interfaces table did not show the container project');
   // Traffic column: on first render no previous sample exists, so every
   // row shows the em-dash placeholder rather than a rate.
   assert.match(rowsOf(doc, 'ifaces'), /—/,

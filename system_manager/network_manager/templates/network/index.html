@@ -111,7 +111,7 @@
     </div>
     <div class="pkg-table-wrap">
       <table class="pkg-table">
-        <thead><tr><th>Name</th><th>State</th><th>MAC</th><th>IPv4</th><th>IPv6</th><th>MTU</th><th>Traffic</th></tr></thead>
+        <thead><tr><th>Name</th><th>State</th><th>MAC</th><th>IPv4</th><th>IPv6</th><th>MTU</th><th>Traffic</th><th>Containers behind</th></tr></thead>
         <tbody id="ifaces"></tbody>
       </table>
     </div>
@@ -231,6 +231,8 @@ const routeState = {preset: 'all', protocol: '', search: ''};
 const portState = {preset: 'all', search: ''};
 let ifaceRows = [], routeRows = [], portRows = [], topoData = null;
 let pollInterval = null;
+// bridge name -> projects of the containers behind it (filled from topology).
+const ifaceContainers = {};
 // Last sample per interface (name -> {rx, tx, t}), for the traffic column.
 const ratePrev = {};
 // The interface kind lives in the topology graph, not in /network/interfaces:
@@ -315,7 +317,8 @@ function rateLine(i) {
 function renderIfaces() {
   const rows = ifaceRows.filter(matchesIface);
   fill('#ifaces', rows.map(i => [i.name, i.state, i.mac, (i.ipv4 || []).join(', '),
-                                 (i.ipv6 || []).join(', '), i.mtu, rateLine(i)]), 7);
+                                 (i.ipv6 || []).join(', '), i.mtu, rateLine(i),
+                                 (ifaceContainers[i.name] || []).join(', ')]), 8);
   setCount('iface-count', rows.length, ifaceRows.length);
 }
 
@@ -631,6 +634,12 @@ Promise.all([get('/summary'), get('/interfaces'), get('/routes'), get('/dns'), g
     (topo && topo.nodes ? topo.nodes : []).forEach(node => {
       if (node.kind === 'interface' && node.subtype) {
         ifaceKinds.set(node.label, node.subtype);
+      }
+      // A container node names the bridge it hangs off; remember which
+      // projects sit behind each bridge for the interfaces table.
+      if (node.kind === 'container' && node.device) {
+        ifaceContainers[node.device] = ifaceContainers[node.device] || [];
+        ifaceContainers[node.device].push(node.project || node.label);
       }
     });
     renderIfaces();

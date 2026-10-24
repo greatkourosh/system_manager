@@ -461,7 +461,10 @@ carries a filter bar: preset chips (All, Up only, IPv4, IPv6, Has traffic for
 interfaces; All, Default only, IPv4, IPv6, With gateway for routes; All, TCP,
 UDP, Externally reachable, Loopback only, Privileged, Process known for
 ports), a kind or source dropdown, and a text search. The filters change what
-is shown, never what is fetched.
+is shown, never what is fetched. The interfaces table adds two live columns —
+a traffic rate (from the second fetch of the counters, so the first paint
+shows an em dash) and the container projects behind each bridge, named by the
+topology graph.
 
 ### `GET /network/summary`
 **Auth required.** Counts for the summary line.
