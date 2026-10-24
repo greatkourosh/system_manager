@@ -20,6 +20,10 @@ services:
     # the invoking user already has. gid 4 is adm on Debian/Ubuntu.
     group_add:
       - "4"
+      # The docker socket is root:docker 660 on the host. Without the host
+      # docker GID here the socket mount below is unreadable and the network
+      # page cannot resolve container names and compose projects.
+      - "${DOCKER_GID:-984}"
     pid: host
     # docker-default's D-Bus rule denies nmcli's system-bus handshake with
     # "An AppArmor policy prevents this sender from sending this message", so
@@ -38,6 +42,9 @@ services:
       - /etc/dnsmasq.conf:/host/etc/dnsmasq.conf:rw
       - /run/user:/run/user:ro
       - /var/run/dbus:/var/run/dbus:ro
+      # Read-only: the network topology module queries container names and
+      # compose project labels. It never writes or starts anything.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
       - /sys/class/dmi:/sys/class/dmi:ro
       # The host's package database and apt indexes, for the read-only
       # Packages module. The container's own dpkg database is the image's ~140

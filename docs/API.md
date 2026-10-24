@@ -558,7 +558,7 @@ Ports in this table are hex, and are decoded. Empty when the kernel exposes no
   {"id": "container:0a4eae8d90ca", "kind": "container", "label": "ollama",
    "container_id": "0a4eae8d90ca", "pid": 12999, "depth": 2,
    "addresses": ["172.22.0.6"], "device": "br-10b47f13e607",
-   "command": "/bin/ollama serve"},
+   "command": "/bin/ollama serve", "project": "hermes-9router"},
   {"id": "upstream", "kind": "upstream", "label": "Internet", "depth": 2,
    "gateway": "192.168.1.1", "device": "eno1",
    "detail": "via 192.168.1.1 on eno1"}],
@@ -584,8 +584,11 @@ is reported with `host_network` true and drawn beside the host rather than
 behind one of its interfaces.
 
 **What is not recoverable.** The *name* a container was started with lives in
-docker's own database, which is not mounted, and a container's hostname is
-its id, so a container is labelled by the process it runs. Which veth
+docker's own database, so it is read from the docker socket (`/containers/json`,
+mounted read-only — see `DEPLOYMENT.md` for the compose change), which also
+yields the compose `project` label. A container started by hand has no such
+label, so `project` falls back to the container's own name; a container whose
+daemon data cannot be read (socket absent) keeps an empty `project`. Which veth
 belongs to which container is also not recoverable: the container side of
 the pair hides its ifindex behind a permission the container process owns,
 the host side's MAC is not the container's, and the bridge forwarding
@@ -599,12 +602,14 @@ host's network namespace has `host_network` true, an empty `addresses` and
 `detail` `shares the host's network`.
 
 **On the page.** The graph draws the host, its interfaces, the containers
-behind each bridge and the default route. Bridge ports and down interfaces
-are hidden by default — a host keeps one port per attached container and the
-bridges of containers that have stopped, and there are usually more of those
-than anything else — with a checkbox for each. The Interfaces, Routes and
-Listening Ports panels start collapsed and carry filter chips; a filter
-changes what is shown, never what is fetched.
+behind each bridge and the default route. A container card's subtitle shows
+its addresses and the compose project it belongs to (`project`), so a stack
+of veths and bridges reads as the project names that produced them. Bridge
+ports and down interfaces are hidden by default — a host keeps one port per
+attached container and the bridges of containers that have stopped, and
+there are usually more of those than anything else — with a checkbox for
+each. The Interfaces, Routes and Listening Ports panels start collapsed and
+carry filter chips; a filter changes what is shown, never what is fetched.
 
 ### `GET /network/neighbors`
 **Auth required.** The IPv4 neighbour (ARP) cache, from `/proc/{1,}/net/arp`.

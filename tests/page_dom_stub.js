@@ -181,7 +181,7 @@ const FIXTURE = {
       {id: 'container:abc123def456', kind: 'container', label: 'python',
        container_id: 'abc123def456', pid: 1234, depth: 3,
        addresses: ['172.22.0.2'], command: 'python app.py',
-       device: 'br-10b47f13e607'},
+       device: 'br-10b47f13e607', project: 'app_stack'},
       {id: 'upstream', kind: 'upstream', label: 'Internet', depth: 2,
        gateway: '192.168.1.1', device: 'eno1',
        detail: 'via 192.168.1.1 on eno1'},

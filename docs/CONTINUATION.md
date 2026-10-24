@@ -1821,3 +1821,33 @@ interfaces 54 → 12 on "Up only" + Bridge, routes 154 → 3 on "Default only",
 ports 615 → 539 on "Process known", and the three panels confirmed collapsed
 on load.
 
+### 2026-10-24 — Milestone 25: the topology names its projects
+
+Every container on the topology drawn in Milestone 24 was labelled by the
+process it runs; one host runs 25 containers across 12 bridges, and the
+visual said *what* but not *whose*. The name a container was started with,
+and the compose project it belongs to, live only in Docker's own database.
+procfs cannot reach them: a container's hostname is its id, and `environ`
+(where `COMPOSE_PROJECT_NAME` would live) is not readable across the uid
+boundary.
+
+**The docker socket, mounted read-only.** `/var/run/docker.sock` is now
+bound into the container `:ro`, and the host's docker GID is added via
+`group_add` so the non-root uid can read it. `network_manager/docker_meta.py`
+issues a single `GET /containers/json` (stdlib `socket`, no HTTP client
+dependency — the one wrinkle was the daemon's chunked-encoding responses,
+which had to be decoded by hand) and maps each container id to its name and
+its `com.docker.compose.project` label. A container started by hand carries
+no such label, so `project` falls back to its own name.
+
+A container card now shows `<addresses> • <project>` in its subtitle, and
+the hover tooltip adds the project too. When the socket is absent the
+topology still renders — containers just lose their names and projects.
+The module degrades to empty, not to error.
+
+**315 tests pass** (2026-10-24), 3 of them new in `tests/test_docker_meta.py`
+(the name/project mapping and the chunked-encoding parser; the mapping test
+was confirmed red without its fixture). Verified live: `/network/topology`
+returns `project` per container (`hermes-9router` for the ollama stack,
+`aroma_store` for the wordpress stack, and so on).
+

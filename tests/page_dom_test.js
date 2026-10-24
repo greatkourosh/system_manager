@@ -198,6 +198,10 @@ function chip(doc, group, preset) {
     assert.ok(labels.includes(want), 'topology is missing the label ' + want +
       ' (got ' + JSON.stringify(labels) + ')');
   }
+  // The container's subtitle carries its compose project.
+  assert.ok(labels.some(t => t.includes('app_stack')),
+            'topology did not print the container project (got '
+            + JSON.stringify(labels) + ')');
   // A hidden port must not be drawn, and the bridge must say how many
   // ports it has instead.
   assert.ok(!labels.includes('veth0fe2367'), 'bridge port was drawn by default');

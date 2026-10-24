@@ -496,9 +496,13 @@ function renderTopology() {
     if (!detail && node.subtype === 'bridge' && node.member_count) {
       detail = node.member_count + (node.member_count === 1 ? ' port' : ' ports');
     }
-    if (!detail && node.kind === 'container' && node.addresses &&
-        node.addresses.length) {
-      detail = node.addresses.join(', ');
+    if (!detail && node.kind === 'container') {
+      if (node.addresses && node.addresses.length) {
+        detail = node.addresses.join(', ');
+      }
+      if (node.project) {
+        detail = detail ? detail + ' • ' + node.project : node.project;
+      }
     }
     const label = svgEl('text', {x: pos.x + 10, y: pos.y + (detail ? 15 : NODE_H / 2)});
     label.textContent = node.label || node.id;
@@ -515,6 +519,7 @@ function renderTopology() {
     const bits = [node.kind === 'container' ? 'container' : node.kind,
                   node.label];
     if (node.container_id) bits.push('id ' + node.container_id);
+    if (node.project) bits.push('project ' + node.project);
     if (node.command) bits.push(node.command);
     if (node.addresses && node.addresses.length) bits.push(node.addresses.join(', '));
     if (node.gateway) bits.push('via ' + node.gateway);

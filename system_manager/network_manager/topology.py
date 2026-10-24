@@ -13,10 +13,12 @@ Three sources, all read-only procfs and sysfs:
   and `/host/proc/<pid>/net/fib_trie` holds the addresses of that
   container's network namespace.
 
-What cannot be recovered: the *name* a container was started with. Docker
-keeps that in its own database, which is not mounted here, and a
-container's own hostname is its id. So containers are labelled by the
-process they run, with the container id beside them.
+The name a container was started with, and the compose project it belongs
+to, live in docker's own database. They come from the mounted docker
+socket (`docker_meta`), which procfs and sysfs cannot answer: a
+container's own hostname is its id, and `environ` is not readable across
+the uid boundary. When the socket is absent the project is empty and the
+container is labelled by the process it runs.
 
 Also unrecoverable: which veth belongs to which container. The container
 side of the pair hides its ifindex behind a permission the container
@@ -29,6 +31,7 @@ import ipaddress
 import os
 import re
 
+from . import docker_meta as docker_meta_module
 from . import hostnet
 
 __all__ = ["topology"]
@@ -167,19 +170,27 @@ def _containers():
     A container started with the host's network namespace is in it too, so
     its addresses are the host's. It is flagged rather than drawn on a
     bridge, because it is not behind one.
+
+    Project names come from docker's labels; containers without a label fall
+    back to their own name (which is better than just the truncated id).
     """
     host_addresses = _host_addresses()
+    docker_meta = docker_meta_module.container_meta()
     found = {}
     for pid in _namespace_init_pids():
         container_id = _docker_id(pid)
         if not container_id:
             continue
+        # docker_meta stores by 12-char prefix; use that as the lookup key
+        prefix = container_id[:12]
+        meta = docker_meta.get(prefix, {})
         entry = found.setdefault(container_id, {
             "id": container_id,
             "pid": int(pid),
             "name": _read(_host_proc(pid, "comm")).strip(),
             "command": _read(_host_proc(pid, "cmdline")).replace("\0", " ").strip(),
             "addresses": [],
+            "project": meta.get("project", ""),
         })
         for address in _pid_addresses(pid):
             if address.startswith("127.") or address in entry["addresses"]:
@@ -324,6 +335,7 @@ def topology():
             "addresses": container["addresses"],
             "command": container["command"],
             "device": "",
+            "project": container.get("project") or "",
         }
         if container.get("host_network"):
             # It runs in the host's own namespace, so it is beside the host

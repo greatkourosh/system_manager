@@ -132,6 +132,25 @@ land in that project owned by root and become awkward to edit or delete from the
 host. Host sensing still works: it reads through the `/host/*` bind mounts, not
 privileged syscalls, and `CAP_DAC_READ_SEARCH` covers the few root-owned files.
 
+### Docker socket (read-only, for container names and compose projects)
+
+The network topology page shows the compose project each container belongs to.
+That label lives only in Docker's own database, so the socket is mounted
+read-only and the host's docker GID is added so the container uid can read it:
+
+```yaml
+group_add:
+  - "4"
+  - "${DOCKER_GID:-984}"          # docker GID on the host — check `getent group docker`
+volumes:
+  - /var/run/docker.sock:/var/run/docker.sock:ro
+```
+
+The module issues a single `GET /containers/json` and never writes or starts
+anything. If the host's docker GID is not 984, set `DOCKER_GID` in `.env`.
+Without the socket, the topology still renders — containers just lose their
+names and project labels.
+
 Two consequences worth knowing:
 
 - The access code at `./data/access-code` is written mode `0600` by the app, so
