@@ -712,7 +712,7 @@ docker compose exec system-manager cat /data/access-code
 cd tests && PYTHONPATH=<repo root> \
   uv run --python 3.14 --with flask==3.0.3 --with gunicorn==22.0.0 \
   --no-project python -m unittest discover
-# 277 tests, ~4s, all passing — on Python 3.12 or newer.
+# 317 tests, ~4s, all passing — on Python 3.12 or newer.
 ```
 
 ---
@@ -803,10 +803,11 @@ written; `scripts/` does not exist in this project.
 
 ## Git Status
 
-Clean through `a1991d9` ("feat: DNS benchmarking and dnsmasq-backed resolver
-control on /network"), which also carries Milestone 21 and the Music page work
-(`948fc34`). The working tree is clean. Milestone 15 (the organizer as a real
-blueprint) is `4f5f00b`. The sibling
+Clean through `a8b09a1` ("feat: the network topology names each container's
+compose project", Milestone 25), `96b3302` (Milestone 24), and `a1991d9`
+("feat: DNS benchmarking and dnsmasq-backed resolver control on /network",
+Milestone 21 and the Music page work). The working tree is clean. Milestone 15
+(the organizer as a real blueprint) is `4f5f00b`. The sibling
 checkout is clean through `35c6f62`: `fa55804` dropped 23 dead
 `video_library*.json` variants, `ee169fb` added the Oct 1–5 host tooling
 (`media_path` reuse, `gone` status, `.bak`, genre-needle sync), and `35c6f62`
@@ -814,7 +815,7 @@ made the scanner emit every episode in `videos[]` instead of one sample;
 Milestone 5 completed in `d1ac423`. The 2026-09-26 verification pass
 (Milestone 6) was documentation-only. A later pass on the same day fixed four
 container/host bugs — see the Milestone 7 entry, and Milestone 9 below.
-**277 tests pass, 0 failures** (2026-10-20; was 230 on 2026-10-08).
+**317 tests pass, 0 failures** (2026-10-24; was 277 on 2026-10-20).
 
 The sibling checkout (`../folder_organizer`) is clean through `35c6f62`. It
 spent the whole of Milestone 18 and 19's aftermath with 27 files uncommitted —
@@ -1850,4 +1851,34 @@ The module degrades to empty, not to error.
 was confirmed red without its fixture). Verified live: `/network/topology`
 returns `project` per container (`hermes-9router` for the ollama stack,
 `aroma_store` for the wordpress stack, and so on).
+
+### 2026-10-24 — Milestone 26: a flat folder's filename is read as a tag
+
+A file one level below `Music/<Folder>/` carries no artist or album folder
+to read, so the detector stayed silent and the Music page proposed nothing.
+But the filename itself often says *exactly* who made it and what it is:
+`001) Aija Alsina - Awakening.mp3` is two halves around a ` - ` separator.
+
+`tag_detect.py` now strips a leading track number (`001)` `01.` `02 -` and
+friends — the old pattern removed only `01` with a space/dot-hyphen, leaving
+`001)` behind to poison the title) and, when the folder is flat, splits the
+cleaned filename around ` - `: the first half is the artist at **med**
+confidence, the second is the title. A filename without a split gives only
+the title, and a flat folder's name is still never read as a tag.
+
+`mb_lookup.py` gains `lookup_recordings(records, limit)` — the credited
+artist, first release's album and date, cached per filename — the missing
+piece for a track a filename cannot credit. It is not yet wired to the
+page; the heavy half alone, `tag_detect.py`, is.
+
+Two `FixUntaggedTests` were updated: they used `01 Song.mp3` to mean "no
+proposal" under the old detector, and that fixture now proposes a title. A
+filename that is only a track number (`001).mp3`) carries no evidence at
+all, so the failure-link tests keep their meaning.
+
+**317 tests pass** (2026-10-24), 2 of them new in
+`tests/test_tag_detect.py` (`read a split filename`, `no split gives only a
+title`, and the folder-name guard folded into the first). Both were red
+before the detection change. The Music test suite (`test_music_page.py`)
+needed the fixture correction above but no logic change.
 

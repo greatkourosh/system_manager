@@ -33,14 +33,27 @@ class NestedLayout(unittest.TestCase):
 class FlatLayout(unittest.TestCase):
     """`Music/vMusic/001) Artist - Title.mp3` -- one level below Music.
 
-    There is no artist folder here, so the only sound proposal would be to
-    read the folder as the artist, which writes "vMusic" into every track.
+    There is no artist folder here, so the folder name must never be read
+    as a tag ("vMusic" into every track). But the filename itself carries
+    evidence when it follows "Artist - Title", so a flat folder proposes
+    what the filename actually says -- at med confidence, since a filename
+    can be renamed by anyone -- and stays silent when it doesn't.
     """
 
-    def test_proposes_no_artist_or_title(self):
+    def test_reads_artist_and_title_from_a_split_filename(self):
         got = detect("G:\\Music\\vMusic\\001) Aija Alsina - Awakening.mp3")
+        self.assertEqual(got["artist"], "Aija Alsina")
+        self.assertEqual(got["title"], "Awakening")
+        self.assertEqual(t.detect_from_path("G:\\Music\\vMusic\\001) Aija Alsina - Awakening.mp3")["artist"]["confidence"], "med")
+
+    def test_a_filename_without_a_split_gives_only_a_title(self):
+        got = detect("G:\\Music\\vMusic\\01) Just A Song.mp3")
         self.assertNotIn("artist", got)
-        self.assertNotIn("title", got)
+        self.assertEqual(got.get("title"), "Just A Song")
+
+    def test_the_folder_name_is_never_the_artist(self):
+        got = detect("G:\\Music\\vMusic\\001) Aija Alsina - Awakening.mp3")
+        self.assertNotEqual(got.get("artist"), "vMusic")
 
     def test_still_proposes_a_matched_genre(self):
         got = detect("G:\\Music\\vMusic\\01) Bach - Goldberg Variations.mp3")

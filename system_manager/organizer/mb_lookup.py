@@ -76,6 +76,7 @@ def _release_detail(release_id):
 # preview and once to write -- and each lookup costs a request.
 _album_cache = {}
 _track_cache = {}
+_recording_cache = {}
 
 def lookup_albums(albums, limit=30):
     """albums: [{artist, album}] -> {(artist, album): {"year", "tracks", "title"}}.
@@ -122,6 +123,59 @@ def lookup_albums(albums, limit=30):
                     "score": int(release.get("score", 0))}
         _album_cache[key] = out[key]
         time.sleep(MB_INTERVAL)
+    return out
+
+def lookup_recordings(records, limit=20):
+    """records: [{artist?, title}] -> {(artist_or_empty, title): {"artist", "album", "year"}}.
+
+    For a track whose own tags say nothing, the recording search finds who
+    actually recorded it: the best match's credited artist, its first
+    release's album and date. The filename that carried the title is not
+    proof of the artist -- a burner often wrote the same junk into every
+    file of one compilation -- so the credited artist wins only when the
+    search agrees a recording exists at all.
+
+    Keyed by the *input* artist (possibly empty), not the credited one, so
+    the caller can find its answer. Caching follows that same key: the same
+    filename asked twice costs one request.
+    """
+    out = {}
+    asked = 0
+    for entry in records:
+        artist = (entry.get("artist") or "").strip()
+        title = (entry.get("title") or "").strip()
+        if not title:
+            continue
+        key = (artist, title)
+        if key in out:
+            continue
+        if key in _recording_cache:
+            out[key] = _recording_cache[key]
+            continue
+        if asked >= limit:
+            out[key] = None
+            _recording_cache[key] = None
+            continue
+        asked += 1
+        query = f'recording:"{title}"' + (f' AND artist:"{artist}"' if artist else "")
+        qs = urllib.parse.quote(query)
+        data = _get(f"https://musicbrainz.org/ws/2/recording/?query={qs}&fmt=json&limit=3")
+        time.sleep(MB_INTERVAL)
+        recordings = (data or {}).get("recordings") or []
+        if not recordings:
+            out[key] = None
+            _recording_cache[key] = None
+            continue
+        rec = recordings[0]
+        releases = rec.get("releases") or []
+        date = (releases[0].get("date") or "") if releases else ""
+        best = {
+            "artist": (rec.get("artist-credit") or [{}])[0].get("name"),
+            "album": releases[0].get("title") if releases else None,
+            "year": date[:4] if date[:4].isdigit() else None,
+        }
+        out[key] = best
+        _recording_cache[key] = best
     return out
 
 def lookup_track_years(tracks, limit=20):

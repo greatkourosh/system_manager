@@ -18,6 +18,7 @@ JUNK_RE = re.compile(
     r"\[.*?(ir|info|com|net|org|ir)\]|\{[^}]*\}|www\.[^\s]+|@[^\s]+|\(\d{3,4}\s*k?bps?\)|"
     r"\(?(128|192|256|320)\s*k?bits?\)?|(Full Album|Official|Audio|Lyrics?)(?=[\s_]*$)", re.I)
 TRACKNUM_RE = re.compile(r"^\d{1,3}[\s._\-]+")
+TRACKPREFIX_RE = re.compile(r"^\d{1,3}[\s]*[)\].-]+\s*")
 PERSIAN_RE = re.compile(r"[؀-ۿ]")
 YEAR_RE = re.compile(r"\b(19[5-9]\d|20[0-2]\d)\b")
 
@@ -52,6 +53,7 @@ def clean_filename(name):
     stem = stem.replace("_", " ")
     stem = JUNK_RE.sub(" ", stem)
     stem = TRACKNUM_RE.sub("", stem.strip())
+    stem = TRACKPREFIX_RE.sub("", stem.strip())
     return re.sub(r"\s{2,}", " ", stem).strip(" -.")
 
 
@@ -104,6 +106,20 @@ def detect_from_path(path, mtime=None):
     # `Music/<artist>/<album>/track` — a track sits at least two levels below
     # Music, so there is a real artist folder to read.
     nested = in_music and len(after_music) >= 2
+
+    # `Music/<Flat Folder>/track.mp3` — one level below Music. The folder name
+    # ("Turkish", "vMusic") is not evidence for any tag, but a filename that
+    # follows "Artist - Title" is: two parts around a " - " separator.
+    flat = in_music and len(after_music) == 1 and not nested
+
+    if flat:
+        title = clean_filename(filename)
+        if title:
+            prop["title"] = {"value": title, "confidence": "med"}
+        m = re.match(r"^(.+?)\s+-\s+(.+)$", title)
+        if m:
+            prop["artist"] = {"value": m.group(1), "confidence": "med"}
+            prop["title"] = {"value": m.group(2), "confidence": "med"}
 
     if nested:
         title = clean_filename(filename)

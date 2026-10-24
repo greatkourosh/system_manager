@@ -123,9 +123,9 @@ class FixUntaggedTests(MusicPageTests):
         The page's own filters are the folder, the missing field and the plan
         state, so the link carries the field the group was actually missing.
         """
-        # A flat folder holds no artist or album, so the path says nothing
-        # and there is no proposal to write.
-        flat = [{"path": "G:\\Music\\Files\\01 Song.mp3", "drive": "G",
+        # A filename that is only a track number carries no tag evidence
+        # after the prefix is stripped, so nothing can be proposed for it.
+        flat = [{"path": "G:\\Music\\Files\\001).mp3", "drive": "G",
                  "category": "music", "ext": ".mp3", "size_bytes": 10, "mtime": 0}]
         with open(os.path.join(self.data, "music_catalog.json"), "w", encoding="utf-8") as f:
             json.dump(flat, f)
@@ -145,8 +145,8 @@ class FixUntaggedTests(MusicPageTests):
 
     def test_a_folder_group_links_to_its_folder(self):
         """A folder is a folder on the Music Tags page, so it filters by it."""
-        # A flat folder holds no artist or album, so nothing can be proposed.
-        flat = [{"path": "G:\\Music\\Files\\01 Song.mp3", "drive": "G",
+        # A filename that is only a track number carries no tag evidence.
+        flat = [{"path": "G:\\Music\\Files\\001).mp3", "drive": "G",
                  "category": "music", "ext": ".mp3", "size_bytes": 10, "mtime": 0}]
         with open(os.path.join(self.data, "music_catalog.json"), "w", encoding="utf-8") as f:
             json.dump(flat, f)
