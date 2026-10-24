@@ -803,11 +803,11 @@ written; `scripts/` does not exist in this project.
 
 ## Git Status
 
-Clean through `a8b09a1` ("feat: the network topology names each container's
-compose project", Milestone 25), `96b3302` (Milestone 24), and `a1991d9`
-("feat: DNS benchmarking and dnsmasq-backed resolver control on /network",
-Milestone 21 and the Music page work). The working tree is clean. Milestone 15
-(the organizer as a real blueprint) is `4f5f00b`. The sibling
+Clean through `b8c6e77` ("feat: read Artist - Title from flat-folder
+filenames", Milestone 26), `a8b09a1` (Milestone 25), `96b3302` (Milestone 24),
+and `a1991d9` ("feat: DNS benchmarking and dnsmasq-backed resolver control on
+/network", Milestone 21 and the Music page work). The working tree is clean.
+Milestone 15 (the organizer as a real blueprint) is `4f5f00b`. The sibling
 checkout is clean through `35c6f62`: `fa55804` dropped 23 dead
 `video_library*.json` variants, `ee169fb` added the Oct 1–5 host tooling
 (`media_path` reuse, `gone` status, `.bak`, genre-needle sync), and `35c6f62`
