@@ -1,4 +1,4 @@
-FROM 192.168.1.40:5001/library/python:3.15.1-slim
+FROM 192.168.1.13:7001/library/python:3.15.1-slim
 
 ARG APP_UID=1000
 ARG APP_GID=1000
